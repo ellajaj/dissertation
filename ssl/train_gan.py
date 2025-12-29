@@ -1,7 +1,7 @@
 from utils_libs import *
 from utils_dataset import *
 from utils_methods_FedDC import *
-from utils_models import *
+from utils_models import Discriminator, Generator, Classifier
 
 import torch
 import torch.nn as nn
@@ -15,24 +15,26 @@ def main():
     # --- 1. Hyperparameters ---
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("running on", device)
-    n_clients = 10
+    n_clients = 100
     com_amount = 100      # Total communication rounds
     local_epochs = 5      # Local epochs per round
     batch_size = 64
-    lr = 0.0002           # Standard GAN learning rate
-    alpha_coef = 0.1      # FedDC penalty coefficient
-    z_dim = 100           # Noise vector size
+    lr = 0.0001           # Standard GAN learning rate
+    alpha_coef = 0.0001      # FedDC penalty coefficient
+    #z_dim = 100           # Noise vector size
     num_classes = 10
+    act_prob = 0.15 #just whiile developing 
     
     # --- 2. Data Initialization ---
     print("Setting up Federated Dataset...")
     # This uses your Dirichlet rule for Non-IID data
-    data_obj = DatasetObject(dataset='CIFAR10',  n_client=n_clients,  seed=42,  rule='Drichlet',  rule_arg=0.3 )
+    data_obj = DatasetObject(dataset='CIFAR10',  n_client=n_clients,  seed=42,  rule='Drichlet',  rule_arg=0.6 )
+    #data_obj = DatasetObject(dataset='CIFAR10', n_client=n_clients, seed=23, rule='iid', unbalanced_sgm=0, data_path=data_path)
 
     # --- 3. Model Initialization ---
     print("Initializing Global Models...")
-    global_gen = Generator(z_dim=z_dim, n_label=num_classes).to(device)
-    global_clf = Classifier(num_classes=num_classes).to(device)
+    global_G = Generator(n_label=num_classes).to(device)
+    global_C = Classifier(num_classes=num_classes).to(device)
     
     # Persistent Local Discriminators (One per client, not federated)
     # We store them in a list so they keep their weights across rounds
@@ -44,15 +46,20 @@ def main():
     # FedDC needs to treat (G + C) as one long vector
     def get_combined_model_func():
         # This is a helper for FedDC to know the structure of G and C combined
-        return global_gen, global_clf
+        return global_G, global_C
 
     # --- 5. Start Federated Training ---
     print(f"Starting Triple GAN FedDC with {n_clients} clients...")
     
     # We pass our modified Triple GAN training loop into your FedDC logic
-    avg_ins, avg_cld, avg_all, trn_perf, tst_perf, _, _, _, _ = train_FedDC(
+    cur_cld_C, tst_sel_clt_perf = train_FedDC(
         data_obj=data_obj,
-        act_prob=0.5,             # 50% of clients participate per round
+        model_func_G = Generator, # The class/constructor
+        model_func_C = Classifier,
+        model_func_D = Discriminator,
+        init_model_G = global_G,   # The initialized instance
+        init_model_C = global_C,
+        act_prob=act_prob,             # 50% of clients participate per round
         n_minibatch=10,           # Approximate minibatches per epoch
         learning_rate=lr,
         batch_size=batch_size,
@@ -61,18 +68,18 @@ def main():
         print_per=1,
         weight_decay=1e-4,
         model_func=get_combined_model_func, # Pass combined model
-        init_model=(global_gen, global_clf),
+        init_model=(global_G, global_C),
         alpha_coef=alpha_coef,
         sch_step=10,
         sch_gamma=0.5,
         save_period=10,
-        data_path='./results/',
+        data_path='Folder/',
         rand_seed=42
     )
 
     print("Training Complete. Evaluating Final Global Classifier...")
     # Final evaluation on test set
-    evaluate_global_model(global_clf, data_obj, device)
+    evaluate_global_model(global_C, data_obj, device)
 
 if __name__ == "__main__":
     main()

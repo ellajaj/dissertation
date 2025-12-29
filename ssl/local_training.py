@@ -15,7 +15,7 @@ def local_training(G, C, D, alpha, global_mdl_params, hist_i,
                              lr, batch_size, epochs):
     # G and C are local copies of Global models
     # D is the persistent local discriminator
-    
+    print("starting local triaing")
     opt_G = torch.optim.Adam(G.parameters(), lr=lr, betas=(0.5, 0.999))
     opt_C = torch.optim.Adam(C.parameters(), lr=lr, betas=(0.5, 0.999))
     opt_D = torch.optim.Adam(D.parameters(), lr=lr, betas=(0.5, 0.999))
