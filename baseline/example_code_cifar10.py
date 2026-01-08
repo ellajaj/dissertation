@@ -23,32 +23,32 @@ def main():
     #data_obj = DatasetObject(dataset='CIFAR10', n_client=n_client, seed=23, rule='iid', unbalanced_sgm=0.3, data_path=data_path)
 
     # Dirichlet (0.6)
-    #data_obj = DatasetObject(dataset='CIFAR10', n_client=n_client, seed=20, unbalanced_sgm=0, rule='Drichlet', rule_arg=0.6, data_path=data_path)
-    #data_obj.limit_dataset(max_samples=12000, min_per_class=600, verbose=True)
+    data_obj = DatasetObject(dataset='CIFAR10', n_client=n_client, seed=20, unbalanced_sgm=0, rule='Drichlet', rule_arg=0.6, data_path=data_path)
+    data_obj.limit_dataset(max_samples=6000, min_per_class=60, verbose=True)
     # Dirichlet (0.3)
-    data_obj = DatasetObject(dataset='CIFAR10', n_client=n_client, seed=20, unbalanced_sgm=0, rule='Drichlet', rule_arg=0.3, data_path=data_path)
+    #data_obj = DatasetObject(dataset='CIFAR10', n_client=n_client, seed=20, unbalanced_sgm=0, rule='Drichlet', rule_arg=0.3, data_path=data_path)
+    #data_obj.limit_dataset(max_samples=6000, min_per_class=600, verbose=False)
 
     model_name = 'Resnet18'
+    print("running on lenet")
     #model_name = 'cifar10_LeNet' # Model type
     #model_name = 'Resnet50'
 
     ###
     # Common hyperparameters
 
-    com_amount = 100
+    com_amount = 600
     save_period = 100
-    weight_decay = 1e-4
-    batch_size = 64
+    weight_decay = 1e-3
+    batch_size = 50
     #act_prob = 1
-    act_prob = 0.10
+    act_prob = 0.15
     suffix = model_name
-    lr_decay_per_round = 0.99
+    lr_decay_per_round = 0.998
 
     # Model function
     model_func = lambda : client_model(model_name)
     init_model = model_func()
-    
-
 
     # Initalise the model for all methods with a random seed or load it from a saved initial model
     torch.manual_seed(37)
@@ -66,9 +66,9 @@ def main():
 
     print('FedDC')
 
-    epoch = 3
-    alpha_coef = 0.02
-    learning_rate = 0.01
+    epoch = 5
+    alpha_coef = 1e-2
+    learning_rate = 0.1
     print_per = epoch // 2
 
     n_data_per_client = np.concatenate(data_obj.clnt_x, axis=0).shape[0] / n_client

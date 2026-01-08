@@ -1,5 +1,5 @@
 from utils_libs import *
-from utils_dataset import *
+from utils_dataset_datasep import *
 from utils_models import *
 os.environ["CUDA_DEVICE_ORDER"]    = "PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
@@ -209,8 +209,8 @@ def train_model_FedDC(model, model_func, alpha, local_update_last, global_update
     n_trn = trn_x.shape[0]
     state_update_diff = torch.tensor(-local_update_last+ global_update_last,  dtype=torch.float32, device=device)
     trn_gen = data.DataLoader(Dataset(trn_x, trn_y, train=True, dataset_name=dataset_name), batch_size=batch_size, shuffle=True)
-    #loss_fn = torch.nn.CrossEntropyLoss(reduction='sum')
-    loss_fn = torch.nn.CrossEntropyLoss(reduction='mean')
+    loss_fn = torch.nn.CrossEntropyLoss(reduction='sum')
+    #loss_fn = torch.nn.CrossEntropyLoss(reduction='mean')
 
     optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=sch_step, gamma=sch_gamma)
@@ -227,8 +227,6 @@ def train_model_FedDC(model, model_func, alpha, local_update_last, global_update
         trn_gen_iter = trn_gen.__iter__()
         for i in range(int(np.ceil(n_trn/batch_size))):
             batch_x, batch_y = trn_gen_iter.__next__()
-        #for batch_x, batch_y in trn_gen:
-
             batch_x = batch_x.to(device)
             batch_y = batch_y.to(device)
 

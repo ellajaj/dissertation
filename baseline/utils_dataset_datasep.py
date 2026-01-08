@@ -79,8 +79,8 @@ class DatasetObject:
                     clnt_x[i] = np.zeros((0, self.channels, self.height, self.width), dtype=np.float32)
                     clnt_y[i] = np.zeros((0,), dtype=np.int64)
 
-            clnt_x = np.array(clnt_x, dtype=object)
-            clnt_y = np.array(clnt_y, dtype=object)
+            #clnt_x = np.array(clnt_x, dtype=object)
+            #clnt_y = np.array(clnt_y, dtype=object)
 
             cls_means = np.zeros((self.n_client, self.n_cls))
             for i in range(self.n_client):
@@ -118,8 +118,8 @@ class DatasetObject:
                 clnt_x[clnt_idx_] = trn_x_to_split[clnt_data_list_cum_sum[clnt_idx_]:clnt_data_list_cum_sum[clnt_idx_+1]]
                 clnt_y[clnt_idx_] = trn_y_to_split[clnt_data_list_cum_sum[clnt_idx_]:clnt_data_list_cum_sum[clnt_idx_+1]]
 
-            clnt_x = np.array(clnt_x, dtype=object)
-            clnt_y = np.array(clnt_y, dtype=object)
+            #clnt_x = np.array(clnt_x, dtype=object)
+            #clnt_y = np.array(clnt_y, dtype=object)
 
         self.clnt_x = clnt_x
         self.clnt_y = clnt_y
@@ -291,6 +291,10 @@ class DatasetObject:
 
           trn_x_original = self.trn_x
           trn_y_original = self.trn_y.reshape(-1)
+
+          #trn_y_original = np.array(trn_y_original, dtype=np.int64)
+          trn_y_original = np.asarray(trn_y_original).astype(np.int64)
+
 
           N = len(trn_y_original)
           if max_samples >= N:
@@ -464,15 +468,6 @@ class Dataset(torch.utils.data.Dataset):
             if not isinstance(data_y, bool):
                 self.y_data = data_y.astype('float32') # Should be int for labels
 
-        elif self.name == 'shakespeare':
-
-            self.X_data = data_x
-            self.y_data = data_y
-
-            self.X_data = torch.tensor(self.X_data).long()
-            if not isinstance(data_y, bool):
-                self.y_data = torch.tensor(self.y_data).float()
-
 
     def __len__(self):
         return len(self.X_data)
@@ -498,6 +493,8 @@ class Dataset(torch.utils.data.Dataset):
                     dim_1, dim_2 = np.random.randint(pad * 2 + 1, size=2)
                     img = extended_img[:,dim_1:dim_1+32,dim_2:dim_2+32]
             img = np.moveaxis(img, 0, -1)
+            if isinstance(img, np.ndarray) and img.dtype == object:
+                img = np.array(img, dtype=np.uint8)
             img = self.transform(img)
             if isinstance(self.y_data, bool):
                 return img
@@ -505,7 +502,3 @@ class Dataset(torch.utils.data.Dataset):
                 y = self.y_data[idx]
                 return img, y
 
-        elif self.name == 'shakespeare':
-            x = self.X_data[idx]
-            y = self.y_data[idx]
-            return x, y

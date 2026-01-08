@@ -229,9 +229,6 @@ def train_model_TripleFedDC(G, C, D, alpha,
             state_diff_G = state_update_diff[:len(params_G)]
             state_diff_C = state_update_diff[len(params_G):]
 
-            alpha_G = 1e-2
-            alpha_C = 1e-4
-
             # FedDC losses (different strengths!)
             loss_cp_G = (alpha_G / 2) * torch.sum((params_G - (global_G - hist_G)) ** 2)
             loss_cp_C = (alpha_C / 2) * torch.sum((params_C - (global_C - hist_C)) ** 2)

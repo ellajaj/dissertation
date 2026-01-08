@@ -88,7 +88,6 @@ def train_FedDC(data_obj, act_prob,n_minibatch,
 
                 avg_all_mdls[saved_itr//save_period] = fed_all
 
-
                 ####
                 fed_cld = model_func()
                 fed_cld.load_state_dict(torch.load('%sModel/%s/%s/cld_avg_%dcom.pt' %(data_path, data_obj.name, suffix, i+1)))
