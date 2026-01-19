@@ -18,7 +18,9 @@ class DatasetObject:
     def set_data(self):
         if not os.path.exists('%sData/%s' %(self.data_path, self.name)):
             transform = transforms.Compose([transforms.ToTensor(),
-                                            transforms.Normalize(mean=[0.4914, 0.4822, 0.4465], std=[0.2023, 0.1994, 0.2010])])
+                                            #transforms.Normalize(mean=[0.4914, 0.4822, 0.4465], std=[0.2023, 0.1994, 0.2010]
+                                            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+                                            ])
 
             trnset = torchvision.datasets.CIFAR10(root='%sData/Raw' %self.data_path,
                                                     train=True , download=True, transform=transform)
@@ -109,18 +111,40 @@ class DatasetObject:
                 print('--- Min deviation from prior: %.4f' %np.min(prior_real_diff))
 
 
-                self.clnt_x = clnt_x; self.clnt_y = clnt_y
-                self.tst_x  = tst_x;  self.tst_y  = tst_y
+                #self.clnt_x = clnt_x; self.clnt_y = clnt_y
+                #self.tst_x  = tst_x;  self.tst_y  = tst_y
 
-                # Save data
-                os.mkdir('%sData/%s' %(self.data_path, self.name))
+            elif self.rule == 'iid':
 
-                np.save('%sData/%s/clnt_x.npy' %(self.data_path, self.name), clnt_x)
-                np.save('%sData/%s/clnt_y.npy' %(self.data_path, self.name), clnt_y)
+                clnt_x = [ np.zeros((clnt_data_list[clnt__], self.channels, self.height, self.width)).astype(np.float32) for clnt__ in range(self.n_client) ]
+                clnt_y = [ np.zeros((clnt_data_list[clnt__], 1)).astype(np.int64) for clnt__ in range(self.n_client) ]
 
-                np.save('%sData/%s/tst_x.npy'  %(self.data_path, self.name),  tst_x)
-                np.save('%sData/%s/tst_y.npy'  %(self.data_path, self.name),  tst_y)
-                print("split complete")
+                clnt_data_list_cum_sum = np.concatenate(([0], np.cumsum(clnt_data_list)))
+                for clnt_idx_ in range(self.n_client):
+                    clnt_x[clnt_idx_] = trn_x[clnt_data_list_cum_sum[clnt_idx_]:clnt_data_list_cum_sum[clnt_idx_+1]]
+                    clnt_y[clnt_idx_] = trn_y[clnt_data_list_cum_sum[clnt_idx_]:clnt_data_list_cum_sum[clnt_idx_+1]]
+
+
+                clnt_x = np.array(clnt_x, dtype=object)
+                #clnt_x = np.asarray(clnt_x)
+                #clnt_y = np.asarray(clnt_y)
+                clnt_y = np.array(clnt_y, dtype=object)
+
+
+            self.clnt_x = clnt_x; self.clnt_y = clnt_y
+
+            self.tst_x  = tst_x;  self.tst_y  = tst_y
+
+
+            # Save data
+            os.mkdir('%sData/%s' %(self.data_path, self.name))
+
+            np.save('%sData/%s/clnt_x.npy' %(self.data_path, self.name), clnt_x)
+            np.save('%sData/%s/clnt_y.npy' %(self.data_path, self.name), clnt_y)
+
+            np.save('%sData/%s/tst_x.npy'  %(self.data_path, self.name),  tst_x)
+            np.save('%sData/%s/tst_y.npy'  %(self.data_path, self.name),  tst_y)
+            print("split complete")
 
         else:
             print("Data is already downloaded")
@@ -147,7 +171,7 @@ class Dataset(torch.utils.data.Dataset):
         self.X_data = data_x
         self.y_data = data_y
         if not isinstance(data_y, bool):
-            self.y_data = data_y.astype('float32') # Should be int for labels
+            self.y_data = data_y.astype('int64') # Should be int for labels
 
 
     def __len__(self):
@@ -183,9 +207,11 @@ class TripleGANDataset(torch.utils.data.Dataset):
         self.x_l, self.y_l = x_l, y_l
         self.x_u = x_u
         self.train = train
+        self.l_perm = np.random.permutation(len(self.y_l))
         self.transform = transforms.Compose([
             transforms.ToTensor(),
-            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+            #transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+            #transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
         ])
 
     def __len__(self):
@@ -196,21 +222,33 @@ class TripleGANDataset(torch.utils.data.Dataset):
         img_u = self.x_u[idx]
         
         # Labeled sample (cycling through the smaller labeled set)
-        l_idx = idx % len(self.y_l)
+        #l_idx = idx % len(self.y_l)
+        l_idx = self.l_perm[idx % len(self.y_l)]
+
         img_l = self.x_l[l_idx]
         label_l = self.y_l[l_idx]
+        img_l = np.array(img_l).astype(np.float32)
+        img_u = np.array(img_u).astype(np.float32)
  
-        img_l = np.array(img_l, dtype=np.uint8)
-        img_u = np.array(img_u, dtype=np.uint8)
+        #img_l = np.array(img_l, dtype=np.uint8)
+        #img_u = np.array(img_u, dtype=np.uint8)
+        '''if img_l.shape[0] == 3: 
+            img_l = np.moveaxis(img_l, 0, -1) # Converts (3, 32, 32) -> (32, 32, 3)
+        if img_u.shape[0] == 3:
+            img_u = np.moveaxis(img_u, 0, -1)
 
-        if img_l.size == 3072: # 32*32*3
-            img_l = img_l.reshape(32, 32, 3)
-            img_u = img_u.reshape(32, 32, 3)
+        #if img_l.size == 3072: # 32*32*3
+            #img_l = img_l.reshape(32, 32, 3)
+            #img_u = img_u.reshape(32, 32, 3)
 
         if self.transform is not None:
             img_l = self.transform(img_l)
-            img_u = self.transform(img_u)
+            img_u = self.transform(img_u)'''
 
         label_l = np.array(label_l).astype(np.int64)
+        #label_l = torch.tensor(label_l, dtype=torch.long)
+
+        #label_l = torch.tensor(label_l).long().squeeze()
+        #label_l = torch.from_numpy(np.array(label_l).astype(np.int64)).squeeze()
         return img_l, torch.from_numpy(label_l), img_u
 

@@ -3,63 +3,56 @@ from utils_dataset import *
 from utils_methods_FedDC import *
 from utils_models import Discriminator, Generator, Classifier
 
-import torch
-import torch.nn as nn
+#import torch
+#import torch.nn as nn
 import numpy as np
 import copy
 
-# Assuming your classes (Generator, Classifier, Discriminator, DatasetObject) 
-# and the train_FedDC functions are in the same script or imported.
 
 def main():
-    # --- 1. Hyperparameters ---
+    # Hyperparameters 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("running on", device)
     n_clients = 100
-    com_amount = 100      # Total communication rounds
+    com_amount = 300      # Total communication rounds
     local_epochs = 5      # Local epochs per round
     batch_size = 64
-    lr = 0.0001           # Standard GAN learning rate
+    lr = 0.0002           # Standard GAN learning rate
     alpha_coef = 0.0001      # FedDC penalty coefficient
     #z_dim = 100           # Noise vector size
     num_classes = 10
     act_prob = 0.15 #just whiile developing 
+
     
-    # --- 2. Data Initialization ---
     print("Setting up Federated Dataset...")
     # This uses your Dirichlet rule for Non-IID data
     data_obj = DatasetObject(dataset='CIFAR10',  n_client=n_clients,  seed=42,  rule='Drichlet',  rule_arg=0.6 )
-    #data_obj = DatasetObject(dataset='CIFAR10', n_client=n_clients, seed=23, rule='iid', unbalanced_sgm=0, data_path=data_path)
+    #data_obj = DatasetObject(dataset='CIFAR10', n_client=n_clients, seed=23, rule='iid', unbalanced_sgm=0)
 
-    # --- 3. Model Initialization ---
+
     print("Initializing Global Models...")
     global_G = Generator(n_label=num_classes).to(device)
     global_C = Classifier(num_classes=num_classes).to(device)
     
-    # Persistent Local Discriminators (One per client, not federated)
-    # We store them in a list so they keep their weights across rounds
     local_discriminators = [
         Discriminator(n_label=num_classes).to(device) for _ in range(n_clients)
     ]
 
-    # --- 4. Parameter Concatenation Setup ---
-    # FedDC needs to treat (G + C) as one long vector
+
     def get_combined_model_func():
         # This is a helper for FedDC to know the structure of G and C combined
         return global_G, global_C
 
-    # --- 5. Start Federated Training ---
     print(f"Starting Triple GAN FedDC with {n_clients} clients...")
     
-    # We pass our modified Triple GAN training loop into your FedDC logic
     cur_cld_C, tst_sel_clt_perf = train_FedDC(
         data_obj=data_obj,
-        model_func_G = Generator, # The class/constructor
+        model_func_G = Generator, 
         model_func_C = Classifier,
         model_func_D = Discriminator,
-        init_model_G = global_G,   # The initialized instance
+        init_model_G = global_G,  
         init_model_C = global_C,
-        act_prob=act_prob,             # 50% of clients participate per round
+        act_prob=act_prob,            
         n_minibatch=10,           # Approximate minibatches per epoch
         learning_rate=lr,
         batch_size=batch_size,
@@ -67,7 +60,7 @@ def main():
         com_amount=com_amount,
         print_per=1,
         weight_decay=1e-4,
-        model_func=get_combined_model_func, # Pass combined model
+        model_func=get_combined_model_func,
         init_model=(global_G, global_C),
         alpha_coef=alpha_coef,
         sch_step=10,
@@ -78,45 +71,9 @@ def main():
     )
 
     print("Training Complete. Evaluating Final Global Classifier...")
-    # Final evaluation on test set
     evaluate_global_model(global_C, data_obj, device)
 
 if __name__ == "__main__":
     main()
 
-
-'''#initalise global models 
-G_global = Generator()
-C_global = Classifier()
-
-#get fed dc state variables??
-
-#set params (comm rounds, num clients )
-n_client = 100 
-# Dirichlet (0.3)
-data_obj = DatasetObject(dataset='CIFAR10', n_client=n_client, seed=20, unbalanced_sgm=0, rule='Drichlet', rule_arg=0.3, data_path=data_path)
-
-
-comm_ammount = 100
-
-
-for round in comm_ammount:
-
-
-# for round in comm rounds 
-
-    #select clients 
-    #
-    #for client in selected clients 
-
-        #send G and C to clients 
-        #do local training 
-
-        #update local discriminator
-        #update copy of G
-        #update copy of C
-
-    #after all clients trained 
-    #use fed dc to aggregate G and C updates
-    #update G and C '''
  

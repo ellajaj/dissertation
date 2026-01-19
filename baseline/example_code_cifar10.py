@@ -29,9 +29,9 @@ def main():
     #data_obj = DatasetObject(dataset='CIFAR10', n_client=n_client, seed=20, unbalanced_sgm=0, rule='Drichlet', rule_arg=0.3, data_path=data_path)
     #data_obj.limit_dataset(max_samples=6000, min_per_class=600, verbose=False)
 
-    model_name = 'Resnet18'
-    print("running on lenet")
-    #model_name = 'cifar10_LeNet' # Model type
+    #model_name = 'Resnet18'
+    print("running on resent18")
+    model_name = 'cifar10_LeNet' # Model type
     #model_name = 'Resnet50'
 
     ###
