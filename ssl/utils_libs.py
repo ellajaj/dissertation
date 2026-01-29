@@ -24,6 +24,7 @@ from sklearn import mixture
 from torchsummary import summary
 import random
 import torchvision.models as models
+from torchvision.models import inception_v3
 
 
 from sklearn.metrics import (

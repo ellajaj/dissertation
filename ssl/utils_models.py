@@ -10,134 +10,54 @@ from torch.nn import utils
 class Classifier(nn.Module):
     def __init__(self, num_classes=10):
         super(Classifier, self).__init__()
-
-        #resnet 9 
-        ''' def conv_bn(channels_in, channels_out, pool=False):
-            layers = [
-                nn.Conv2d(channels_in, channels_out, kernel_size=3, padding=1, bias=False),
-                nn.BatchNorm2d(channels_out), # You can swap this for GroupNorm if preferred
-                nn.LeakyReLU(0.1, inplace=True)
-            ]
-            if pool: layers.append(nn.MaxPool2d(2))
-            return nn.Sequential(*layers)
-
-        self.prep = conv_bn(3, 64)
-        self.layer1 = conv_bn(64, 128, pool=True)
-        self.res1 = nn.Sequential(conv_bn(128, 128), conv_bn(128, 128)) # Residual block
-        
-        self.layer2 = conv_bn(128, 256, pool=True)
-        self.layer3 = conv_bn(256, 512, pool=True)
-        self.res3 = nn.Sequential(conv_bn(512, 512), conv_bn(512, 512)) # Residual block
-        
-        self.pool = nn.MaxPool2d(4) # Global Max Pool
-        self.fc = nn.Sequential(
-            nn.Flatten(), 
-            nn.Dropout(0.5), # Dropout is key here
-            nn.Linear(512, num_classes)
-        )
-
-    def forward(self, x):
-        out = self.prep(x)
-        out = self.layer1(out)
-        out = self.res1(out) + out
-        out = self.layer2(out)
-        out = self.layer3(out)
-        out = self.res3(out) + out
-        out = self.pool(out)
-        return self.fc(out)'''
-        #cifar 10 le net classifier 
-        '''self.n_cls = 10
-        self.conv1 = nn.Conv2d(in_channels=3, out_channels=64 , kernel_size=5)
-        self.bn1 = nn.BatchNorm2d(64)
-        self.conv2 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=5)
-        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.bn2 = nn.BatchNorm2d(64)
-
-        self.fc1 = nn.Linear(64*5*5, 384) 
-        self.fc2 = nn.Linear(384, 192) 
-        self.fc3 = nn.Linear(192, self.n_cls)
-
-    def forward(self, x):
-        x = self.pool(F.relu(self.conv1(x)))
-        x = self.pool(F.relu(self.conv2(x)))
-        x = x.view(-1, 64*5*5)
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))ce
-        x = self.fc3(x)
-        return x'''
-
-    #resnet18 classifier 
+        #resnet18 classifier 
         self.model = models.resnet18()
         self.model.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
         self.model.maxpool = nn.Identity()
         replace_bn_with_gn(self.model, num_groups=8)  
         num_ftrs = self.model.fc.in_features # 512
         self.model.fc = nn.Sequential(
-            nn.Dropout(0.5), # <--- CRITICAL for low-data regimes
+            nn.Dropout(0.5), 
             nn.Linear(num_ftrs, num_classes)
         )
-        #resnet18 = models.resnet18()
-        #resnet18.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
-        #resnet18.maxpool = nn.Identity() # remove the maxpool layer
-        #replace_bn_with_gn(resnet18, num_groups=32)
-        #resnet18.fc = nn.Linear(512, 10) 
-        #assert len(dict(resnet18.named_parameters()).keys()) == len(resnet18.state_dict().keys()), 'More BN layers are there...'
-        #self.model = resnet18
+        '''resnet18 = models.resnet18()
+        resnet18.fc = nn.Linear(512, 10)
+
+        # Change BN to GN 
+        resnet18.bn1 = nn.GroupNorm(num_groups = 2, num_channels = 64)
+
+        resnet18.layer1[0].bn1 = nn.GroupNorm(num_groups = 2, num_channels = 64)
+        resnet18.layer1[0].bn2 = nn.GroupNorm(num_groups = 2, num_channels = 64)
+        resnet18.layer1[1].bn1 = nn.GroupNorm(num_groups = 2, num_channels = 64)
+        resnet18.layer1[1].bn2 = nn.GroupNorm(num_groups = 2, num_channels = 64)
+
+        resnet18.layer2[0].bn1 = nn.GroupNorm(num_groups = 2, num_channels = 128)
+        resnet18.layer2[0].bn2 = nn.GroupNorm(num_groups = 2, num_channels = 128)
+        resnet18.layer2[0].downsample[1] = nn.GroupNorm(num_groups = 2, num_channels = 128)
+        resnet18.layer2[1].bn1 = nn.GroupNorm(num_groups = 2, num_channels = 128)
+        resnet18.layer2[1].bn2 = nn.GroupNorm(num_groups = 2, num_channels = 128)
+
+        resnet18.layer3[0].bn1 = nn.GroupNorm(num_groups = 2, num_channels = 256)
+        resnet18.layer3[0].bn2 = nn.GroupNorm(num_groups = 2, num_channels = 256)
+        resnet18.layer3[0].downsample[1] = nn.GroupNorm(num_groups = 2, num_channels = 256)
+        resnet18.layer3[1].bn1 = nn.GroupNorm(num_groups = 2, num_channels = 256)
+        resnet18.layer3[1].bn2 = nn.GroupNorm(num_groups = 2, num_channels = 256)
+
+        resnet18.layer4[0].bn1 = nn.GroupNorm(num_groups = 2, num_channels = 512)
+        resnet18.layer4[0].bn2 = nn.GroupNorm(num_groups = 2, num_channels = 512)
+        resnet18.layer4[0].downsample[1] = nn.GroupNorm(num_groups = 2, num_channels = 512)
+        resnet18.layer4[1].bn1 = nn.GroupNorm(num_groups = 2, num_channels = 512)
+        resnet18.layer4[1].bn2 = nn.GroupNorm(num_groups = 2, num_channels = 512)
+        assert len(dict(resnet18.named_parameters()).keys()) == len(resnet18.state_dict().keys()), 'More BN layers are there...'
+        
+        self.model = resnet18'''
 
     def forward(self, x):
         x = self.model(x)
         return x
-   
-    #original classifier
-        '''def conv_block(in_dim, out_dim):
-            return nn.Sequential(
-                nn.Conv2d(in_dim, out_dim, kernel_size=3, padding=1),
-                nn.BatchNorm2d(out_dim), # Added BatchNorm
-                nn.LeakyReLU(0.2, inplace=True),
-                nn.MaxPool2d(2, 2)
-            )
-        
-        # Using a standard CNN backbone
-        ''' '''self.feature_extractor = nn.Sequential(
-            nn.Conv2d(3, 64, kernel_size=3, padding=1), # Change 3 to 1 for grayscale
-            nn.LeakyReLU(0.2),
-            nn.MaxPool2d(2, 2),
-            
-            nn.Conv2d(64, 128, kernel_size=3, padding=1),
-            nn.LeakyReLU(0.2),
-            nn.MaxPool2d(2, 2),
-            
-            nn.Conv2d(128, 256, kernel_size=3, padding=1),
-            nn.LeakyReLU(0.2),
-            nn.AdaptiveAvgPool2d((1, 1)) 
-        )''' '''
-        
-        # The head that outputs the class probabilities
-        #self.fc = nn.Linear(256, num_classes)
-        self.feature_extractor = nn.Sequential(
-            conv_block(3, 64),  # Result: 16x16
-            conv_block(64, 128), # Result: 8x8
-            conv_block(128, 256) # Result: 4x4
-        )
-        
-        # 256 filters * 4 * 4 spatial dimension = 4096
-        self.fc = nn.Sequential(
-            nn.Linear(256 * 4 * 4, 512),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Dropout(0.5), # Add dropout to prevent early bias collapse
-            nn.Linear(512, num_classes)
-        )
-    def forward(self, x):
-        x = self.feature_extractor(x)
-        x = torch.flatten(x, 1)
-        logits = self.fc(x)
-        # Note: Return logits. We apply Softmax in the loss function (CrossEntropy)
-        # or use it to generate pseudo-labels for the Discriminator.
-        return logits'''
-        
 
 
-'''class Generator(nn.Module):
+class Generator(nn.Module):
     def __init__(self, z_dim=100, n_label=10, im_size=32, im_chan=3, embed_size=256,
         nfilter=64, nfilter_max=512, actvn=nn.ReLU(),):
         super().__init__()
@@ -163,36 +83,45 @@ class Classifier(nn.Module):
             nf0 = min(nf * 2 ** (nlayers - i), nf_max)
             nf1 = min(nf * 2 ** (nlayers - i - 1), nf_max)
             blocks += [
-                ResnetBlock(nf0, nf1, actvn=self.actvn, use_bn=True),
-                nn.Upsample(scale_factor=2),
+                ResnetBlock(nf0, nf1, actvn=self.actvn, use_sn=True),
+                nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),
             ]
 
-        blocks += [ResnetBlock(nf, nf, actvn=self.actvn, use_bn=True)]
+        blocks += [ResnetBlock(nf, nf, actvn=self.actvn, use_sn=True)]
 
         self.resnet = nn.Sequential(*blocks)
-        self.bn_final = nn.BatchNorm2d(nfilter)
+        #self.bn_final = nn.BatchNorm2d(nfilter)
         self.conv_img = nn.Conv2d(nf, im_chan, 3, padding=1)
 
-    def forward(self, z, y):
-        assert z.size(0) == y.size(0)
+    def forward(self, z, y=None):
+        if y is not None:
+            assert (z.size(0) == y.size(0))
         batch_size = z.size(0)
+        if y is None:
+            y = torch.zeros(batch_size).type(torch.int64)
+            if z.is_cuda:
+                y = y.cuda()
 
-        yembed = self.embedding(y)
-        yembed = yembed / torch.norm(yembed, p=2, dim=1, keepdim=True)
-        # print(z.shape, yembed.shape)
+        if y.dtype is torch.int64:
+            #y = y.clamp_(None, self.nlabels - 1)
+            #y = y.clamp(max=self.nlabels - 1)
+            assert y.max() < self.nlabels and y.min() >= 0 #error if lables are wrong 
+            yembed = self.embedding(y)
+        else:
+            yembed = y
+
+        #yembed = yembed / torch.norm(yembed, p=2, dim=1, keepdim=True)
 
         yz = torch.cat([z, yembed], dim=1)
         out = self.fc(yz)
         out = out.view(batch_size, self.nf0, self.s0, self.s0)
-
         out = self.resnet(out)
-
-        out = self.conv_img(self.actvn(out))
+        out = self.conv_img(actvn(out))
         out = torch.tanh(out)
 
-        return out'''
+        return out
 
-class Generator(nn.Module):
+'''class Generator(nn.Module):
     #Generator generates 128x128.
 
     def __init__(
@@ -241,7 +170,9 @@ class Generator(nn.Module):
             num_classes=num_classes,
         )
         self.b7 = nn.BatchNorm2d(num_features * width_coe)
-        self.conv7 = nn.Conv2d(num_features * width_coe, 3, 1, 1)
+        #self.b7 = nn.Identity()
+        self.conv7 = nn.Conv2d(num_features * width_coe, 3, 3, padding=1)
+
 
     def _initialize(self):
         init.xavier_uniform_(self.l1.weight.tensor)
@@ -252,31 +183,29 @@ class Generator(nn.Module):
         for i in [2, 3, 4]:
             h = getattr(self, "block{}".format(i))(h, y, **kwargs)
         h = self.activation(self.b7(h))
-        return torch.tanh(self.conv7(h))
+        return torch.tanh(self.conv7(h))'''
 
-
-class Discriminator(nn.Module):
+'''class Discriminator(nn.Module):
     def __init__(self, n_label=10):
         super().__init__()
         self.mb_std = MinibatchStdDev()
         #comment out following block
-        '''self.conv = nn.Sequential(
-            nn.Conv2d(3, 64, 4, 2, 1),   # 16x16
+        self.conv = nn.Sequential(
+            nn.Conv2d(4, 64, 4, 2, 1),   # 16x16
             nn.LeakyReLU(0.2, inplace=True),
             nn.Conv2d(64, 128, 4, 2, 1), # 8x8
             nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv2d(128, 256, 4, 2, 1),# 4x4
+            spectral_norm(nn.Conv2d(128, 256, 4, 2, 1)),# 4x4
             nn.LeakyReLU(0.2, inplace=True),
-        )'''
-        self.conv = nn.Sequential(
+        )
+        ''''''self.conv = nn.Sequential(
             spectral_norm(nn.Conv2d(4, 64, 4, 2, 1)),   
             nn.LeakyReLU(0.2, inplace=True),
             spectral_norm(nn.Conv2d(64, 128, 4, 2, 1)), 
             nn.LeakyReLU(0.2, inplace=True),
             spectral_norm(nn.Conv2d(128, 256, 4, 2, 1)),
             nn.LeakyReLU(0.2, inplace=True),
-        )
-
+        )''''''
 
         self.feature_dim = 256 * 4 * 4 # 4096
         #self.fc = nn.Linear(self.feature_dim, 1)
@@ -326,15 +255,78 @@ class Discriminator(nn.Module):
             y = y.cuda()
 
         out = out[index, y]
-        return out
+        return out'''
 
+class Discriminator(nn.Module):
+    def __init__(self,
+                 nlabels=10,
+                 size=32,
+                 embed_size=256,
+                 nfilter=64,
+                 nfilter_max=1024,
+                 actvn=nn.ReLU(),):
+        super().__init__()
+        self.embed_size = embed_size
+        self.nlabels = nlabels
+        s0 = self.s0 = 4
+        nf = self.nf = nfilter
+        self.actvn = actvn
+        nf_max = self.nf_max = nfilter_max
+
+        # Submodules
+        nlayers = int(np.log2(size / s0))
+        self.nf0 = min(nf_max, nf * 2**nlayers)
+
+        blocks = [ResnetBlock(nf, nf, actvn=self.actvn)]
+
+        for i in range(nlayers):
+            nf0 = min(nf * 2**i, nf_max)
+            nf1 = min(nf * 2**(i + 1), nf_max)
+            blocks += [
+                nn.AvgPool2d(3, stride=2, padding=1),
+                ResnetBlock(nf0, nf1, actvn=self.actvn),
+            ]
+
+        self.conv_img = nn.Conv2d(3, 1 * nf, 3, padding=1)
+        self.resnet = nn.Sequential(*blocks)
+        self.fc = nn.Linear(self.nf0 * s0 * s0, nlabels)
+
+    def forward(self, x, y=None, return_features=False):
+        if y is not None:
+            assert (x.size(0) == y.size(0))
+        batch_size = x.size(0)
+
+        out = self.conv_img(x)
+        features = self.resnet(out)
+        #out = self.resnet(out)
+        #out = out.view(batch_size, self.nf0 * self.s0 * self.s0)
+        #out = self.fc(actvn(out))
+        out_flat = features.view(batch_size, self.nf0 * self.s0 * self.s0)
+        final_score = self.fc(actvn(out_flat))
+
+
+        index = torch.LongTensor(range(final_score.size(0)))
+        if y is None:
+            y = torch.zeros(batch_size).type(torch.int64)
+        if x.is_cuda:
+            index = index.cuda()
+            y = y.cuda()
+        final_score = final_score[index, y]
+
+        if return_features:
+            return features, final_score
+        return final_score
+
+def actvn(x):
+    out = torch.relu(x)
+    return out
 
 class ResnetBlock(nn.Module):
     def __init__(self, fin, fout, actvn, fhidden=None, is_bias=True, use_bn=False, use_sn=False):
         super().__init__()
         # Attributes
         self.actvn = actvn
-        #self.is_bias = is_bias
+        self.is_bias = is_bias
         self.learned_shortcut = fin != fout
         self.fin = fin
         self.fout = fout
@@ -710,13 +702,14 @@ class MinibatchStdDev(nn.Module):
         super().__init__()
         
     def forward(self, x):
-        # x shape: [N, C, H, W]
-        std = torch.std(x, dim=0, keepdim=True) # Calculate std across batch
-        mean_std = torch.mean(std) # Single value representing batch diversity
-        
-        # Expand to match input spatial size
-        val = mean_std.expand(x.size(0), 1, x.size(2), x.size(3))
-        
-        # Concatenate: Input is now C+1 channels
-        return torch.cat([x, val], dim=1)
+        batch_size = x.size(0)
 
+        if batch_size < 2:
+            return x
+
+        var = torch.var(x, dim=0, keepdim=True, unbiased=False)
+        std = torch.sqrt(var + 1e-8)
+        mean_std = std.mean().view(1, 1, 1, 1).detach()
+
+        std_feature = mean_std.expand(batch_size, 1, x.size(2), x.size(3))
+        return torch.cat([x, std_feature], dim=1)

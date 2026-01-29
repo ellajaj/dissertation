@@ -14,7 +14,7 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("running on", device)
     n_clients = 100
-    com_amount = 300      # Total communication rounds
+    com_amount = 600      # Total communication rounds
     local_epochs = 5      # Local epochs per round
     batch_size = 64
     lr = 0.0002           # Standard GAN learning rate
@@ -30,12 +30,12 @@ def main():
     #data_obj = DatasetObject(dataset='CIFAR10', n_client=n_clients, seed=23, rule='iid', unbalanced_sgm=0)
 
 
-    print("Initializing Global Models...")
+    print("*Initializing Global Models...")
     global_G = Generator(n_label=num_classes).to(device)
     global_C = Classifier(num_classes=num_classes).to(device)
     
     local_discriminators = [
-        Discriminator(n_label=num_classes).to(device) for _ in range(n_clients)
+        Discriminator().to(device) for _ in range(n_clients)
     ]
 
 
