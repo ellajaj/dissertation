@@ -215,7 +215,7 @@ def train_FedDC(data_obj, act_prob,n_minibatch,
             trn_cur_cld_perf[i] = [loss_tst, acc_tst]
 
 
-            writer.add_scalars('Loss/lenet-train',
+            writer.add_scalars('Loss/ogmodel',
                    {
                        'Sel clients':trn_sel_clt_perf[i][0],
                        'All clients':trn_all_clt_perf[i][0],
@@ -223,7 +223,7 @@ def train_FedDC(data_obj, act_prob,n_minibatch,
                    }, i
                   )
 
-            writer.add_scalars('Accuracy/lenet-train',
+            writer.add_scalars('Accuracy/ogmodel',
                    {
                        'Sel clients':trn_sel_clt_perf[i][1],
                        'All clients':trn_all_clt_perf[i][1],
@@ -231,7 +231,7 @@ def train_FedDC(data_obj, act_prob,n_minibatch,
                    }, i
                   )
 
-            writer.add_scalars('Loss/lenet-train_wd',
+            writer.add_scalars('Loss/ogmodel',
                    {
                        'Sel clients':get_acc_loss(cent_x, cent_y, avg_model_sel, data_obj.dataset, weight_decay)[0],
                        'All clients':get_acc_loss(cent_x, cent_y, all_model, data_obj.dataset, weight_decay)[0],
@@ -262,7 +262,7 @@ def train_FedDC(data_obj, act_prob,n_minibatch,
             tst_cur_cld_perf[i] = [loss_tst, acc_tst]
 
 
-            writer.add_scalars('Loss/lenet-test',
+            writer.add_scalars('Loss/ogmodel',
                    {
                        'Sel clients':tst_sel_clt_perf[i][0],
                        'All clients':tst_all_clt_perf[i][0],
@@ -270,7 +270,7 @@ def train_FedDC(data_obj, act_prob,n_minibatch,
                    }, i
                   )
 
-            writer.add_scalars('Accuracy/lenet-test',
+            writer.add_scalars('Accuracy/ogmodel',
                    {
                        'Sel clients':tst_sel_clt_perf[i][1],
                        'All clients':tst_all_clt_perf[i][1],

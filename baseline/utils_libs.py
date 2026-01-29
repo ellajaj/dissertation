@@ -24,6 +24,7 @@ from sklearn import mixture
 from torchsummary import summary
 import random
 import torchvision.models as models
+from scipy.linalg import fractional_matrix_power
 
 
 from sklearn.metrics import (

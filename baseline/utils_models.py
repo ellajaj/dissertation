@@ -40,7 +40,38 @@ class client_model(nn.Module):
             self.fc3 = nn.Linear(192, self.n_cls)
             
         if self.name == 'Resnet18':
-            self.model = models.resnet18()
+            resnet18 = models.resnet18()
+            resnet18.fc = nn.Linear(512, 10)
+
+            # Change BN to GN 
+            resnet18.bn1 = nn.GroupNorm(num_groups = 2, num_channels = 64)
+
+            resnet18.layer1[0].bn1 = nn.GroupNorm(num_groups = 2, num_channels = 64)
+            resnet18.layer1[0].bn2 = nn.GroupNorm(num_groups = 2, num_channels = 64)
+            resnet18.layer1[1].bn1 = nn.GroupNorm(num_groups = 2, num_channels = 64)
+            resnet18.layer1[1].bn2 = nn.GroupNorm(num_groups = 2, num_channels = 64)
+
+            resnet18.layer2[0].bn1 = nn.GroupNorm(num_groups = 2, num_channels = 128)
+            resnet18.layer2[0].bn2 = nn.GroupNorm(num_groups = 2, num_channels = 128)
+            resnet18.layer2[0].downsample[1] = nn.GroupNorm(num_groups = 2, num_channels = 128)
+            resnet18.layer2[1].bn1 = nn.GroupNorm(num_groups = 2, num_channels = 128)
+            resnet18.layer2[1].bn2 = nn.GroupNorm(num_groups = 2, num_channels = 128)
+
+            resnet18.layer3[0].bn1 = nn.GroupNorm(num_groups = 2, num_channels = 256)
+            resnet18.layer3[0].bn2 = nn.GroupNorm(num_groups = 2, num_channels = 256)
+            resnet18.layer3[0].downsample[1] = nn.GroupNorm(num_groups = 2, num_channels = 256)
+            resnet18.layer3[1].bn1 = nn.GroupNorm(num_groups = 2, num_channels = 256)
+            resnet18.layer3[1].bn2 = nn.GroupNorm(num_groups = 2, num_channels = 256)
+
+            resnet18.layer4[0].bn1 = nn.GroupNorm(num_groups = 2, num_channels = 512)
+            resnet18.layer4[0].bn2 = nn.GroupNorm(num_groups = 2, num_channels = 512)
+            resnet18.layer4[0].downsample[1] = nn.GroupNorm(num_groups = 2, num_channels = 512)
+            resnet18.layer4[1].bn1 = nn.GroupNorm(num_groups = 2, num_channels = 512)
+            resnet18.layer4[1].bn2 = nn.GroupNorm(num_groups = 2, num_channels = 512)
+            assert len(dict(resnet18.named_parameters()).keys()) == len(resnet18.state_dict().keys()), 'More BN layers are there...'
+            
+            self.model = resnet18
+            '''self.model = models.resnet18()
             self.model.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
             self.model.maxpool = nn.Identity()
             replace_bn_with_gn(self.model, num_groups=8)  
@@ -48,7 +79,7 @@ class client_model(nn.Module):
             self.model.fc = nn.Sequential(
                 nn.Dropout(0.5), # <--- CRITICAL for low-data regimes
                 nn.Linear(num_ftrs, 10)
-            )
+            )'''
             '''resnet18 = models.resnet18()
             resnet18.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
             resnet18.maxpool = nn.Identity() # remove the maxpool layer

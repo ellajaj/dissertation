@@ -23,15 +23,15 @@ def main():
     #data_obj = DatasetObject(dataset='CIFAR10', n_client=n_client, seed=23, rule='iid', unbalanced_sgm=0.3, data_path=data_path)
 
     # Dirichlet (0.6)
-    data_obj = DatasetObject(dataset='CIFAR10', n_client=n_client, seed=20, unbalanced_sgm=0, rule='Drichlet', rule_arg=0.6, data_path=data_path)
-    data_obj.limit_dataset(max_samples=6000, min_per_class=60, verbose=True)
+    data_obj = DatasetObject(dataset='CIFAR10', n_client=n_client, seed=42, unbalanced_sgm=0, rule='Drichlet', rule_arg=0.6, data_path=data_path)
+    data_obj.limit_dataset(max_samples=6000, min_per_class=6, verbose=True)
     # Dirichlet (0.3)
     #data_obj = DatasetObject(dataset='CIFAR10', n_client=n_client, seed=20, unbalanced_sgm=0, rule='Drichlet', rule_arg=0.3, data_path=data_path)
     #data_obj.limit_dataset(max_samples=6000, min_per_class=600, verbose=False)
 
-    #model_name = 'Resnet18'
+    model_name = 'Resnet18'
     print("running on resent18")
-    model_name = 'cifar10_LeNet' # Model type
+    #model_name = 'cifar10_LeNet' # Model type
     #model_name = 'Resnet50'
 
     ###
@@ -68,7 +68,7 @@ def main():
 
     epoch = 5
     alpha_coef = 1e-2
-    learning_rate = 0.1
+    learning_rate = 0.0002
     print_per = epoch // 2
 
     n_data_per_client = np.concatenate(data_obj.clnt_x, axis=0).shape[0] / n_client
@@ -89,5 +89,5 @@ def main():
 if __name__ == "__main__":
     # On Windows, this is REQUIRED when using multiprocessing or DataLoader(num_workers > 0)
     import multiprocessing
-    multiprocessing.freeze_support()  # optional unless you’re building an .exe
+    #multiprocessing.freeze_support()  # optional unless you’re building an .exe
     main()
