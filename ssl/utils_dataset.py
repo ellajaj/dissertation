@@ -16,10 +16,11 @@ class DatasetObject:
         self.set_data()
 
     def set_data(self):
+        rng = np.random.default_rng(seed=42)
         if not os.path.exists('%sData/%s' %(self.data_path, self.name)):
             transform = transforms.Compose([transforms.ToTensor(),
                                             #transforms.Normalize(mean=[0.4914, 0.4822, 0.4465], std=[0.2023, 0.1994, 0.2010]
-                                            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+                                            #transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
                                             ])
 
             trnset = torchvision.datasets.CIFAR10(root='%sData/Raw' %self.data_path,
@@ -39,11 +40,44 @@ class DatasetObject:
             trn_x = trn_x.numpy(); trn_y = trn_y.numpy().reshape(-1,1)
             tst_x = tst_x.numpy(); tst_y = tst_y.numpy().reshape(-1,1)
 
+            trn_x = (trn_x * 255).astype(np.uint8)
+            #tst_x = tst_x.numpy()
+            tst_x = (tst_x * 255).astype(np.uint8)
+
             # Shuffle Data
             np.random.seed(self.seed)
             rand_perm = np.random.permutation(len(trn_y))
             trn_x = trn_x[rand_perm]
             trn_y = trn_y[rand_perm]
+
+            #90%unlabelled
+            n_total = len(trn_y)
+            split = int(0.1 * n_total)
+
+            X_labeled = trn_x[:split]
+            y_labeled = trn_y[:split]
+
+            X_unlabeled = trn_x[split:] 
+
+            #determine size for labelled clients 
+            n_labeled_per_client = len(y_labeled) // self.n_client
+
+            clnt_data_list = rng.lognormal(
+                mean=np.log(n_labeled_per_client),
+                sigma=self.unbalanced_sgm,
+                size=self.n_client
+            ).astype(int)
+
+            clnt_data_list = (
+                clnt_data_list / clnt_data_list.sum() * len(y_labeled)
+            ).astype(int)
+
+            diff = clnt_data_list.sum() - len(y_labeled)
+            if diff != 0:
+                for i in range(self.n_client):
+                    if clnt_data_list[i] > abs(diff):
+                        clnt_data_list[i] -= diff
+                        break
 
             print("1")
 
@@ -53,7 +87,7 @@ class DatasetObject:
             self.tst_y = tst_y
 
             ###
-            n_data_per_clnt = int((len(trn_y)) / self.n_client)
+            '''n_data_per_clnt = int((len(trn_y)) / self.n_client)
             # Draw from lognormal distribution
             clnt_data_list = (np.random.lognormal(mean=np.log(n_data_per_clnt), sigma=self.unbalanced_sgm, size=self.n_client)).astype(int)
             clnt_data_list = (clnt_data_list/np.sum(clnt_data_list)*len(trn_y)).astype(int)
@@ -67,13 +101,13 @@ class DatasetObject:
                     if clnt_data_list[clnt_i] > diff:
                         clnt_data_list[clnt_i] -= diff
                         break
-            ###
+            ### '''
 
             if self.rule == 'Drichlet':
                 cls_priors   = np.random.dirichlet(alpha=[self.rule_arg]*self.n_cls,size=self.n_client)
                 prior_cumsum = np.cumsum(cls_priors, axis=1)
-                idx_list = [np.where(trn_y==i)[0] for i in range(self.n_cls)]
-                cls_amount = [len(idx_list[i]) for i in range(self.n_cls)]
+                idx_list = [np.where(y_labeled==i)[0] for i in range(self.n_cls)]
+                cls_amount = [len(idx) for idx in idx_list]
 
                 clnt_x = [ np.zeros((clnt_data_list[clnt__], self.channels, self.height, self.width)).astype(np.float32) for clnt__ in range(self.n_client) ]
                 clnt_y = [ np.zeros((clnt_data_list[clnt__], 1)).astype(np.int64) for clnt__ in range(self.n_client) ]
@@ -92,10 +126,10 @@ class DatasetObject:
                         if cls_amount[cls_label] <= 0:
                             continue
                         cls_amount[cls_label] -= 1
+                        idx = idx_list[cls_label][cls_amount[cls_label]]
 
-                        clnt_x[curr_clnt][clnt_data_list[curr_clnt]] = trn_x[idx_list[cls_label][cls_amount[cls_label]]]
-                        clnt_y[curr_clnt][clnt_data_list[curr_clnt]] = trn_y[idx_list[cls_label][cls_amount[cls_label]]]
-
+                        clnt_x[curr_clnt][clnt_data_list[curr_clnt]] = X_labeled[idx]
+                        clnt_y[curr_clnt][clnt_data_list[curr_clnt]] = y_labeled[idx]
                         break
 
                 # Add explicit conversion to object dtype numpy array for inhomogeneous data
@@ -132,7 +166,7 @@ class DatasetObject:
 
 
             self.clnt_x = clnt_x; self.clnt_y = clnt_y
-
+            self.unlabeled_x = X_unlabeled
             self.tst_x  = tst_x;  self.tst_y  = tst_y
 
 
@@ -141,7 +175,7 @@ class DatasetObject:
 
             np.save('%sData/%s/clnt_x.npy' %(self.data_path, self.name), clnt_x)
             np.save('%sData/%s/clnt_y.npy' %(self.data_path, self.name), clnt_y)
-
+            np.save('%sData/%s/unlabeled_x.npy' %(self.data_path, self.name), X_unlabeled)
             np.save('%sData/%s/tst_x.npy'  %(self.data_path, self.name),  tst_x)
             np.save('%sData/%s/tst_y.npy'  %(self.data_path, self.name),  tst_y)
             print("split complete")
@@ -151,6 +185,7 @@ class DatasetObject:
             self.clnt_x = np.load('%sData/%s/clnt_x.npy' %(self.data_path, self.name),allow_pickle=True)
             self.clnt_y = np.load('%sData/%s/clnt_y.npy' %(self.data_path, self.name),allow_pickle=True)
             self.n_client = len(self.clnt_x)
+            self.unlabeled_x = np.load('%sData/%s/clnt_y.npy' %(self.data_path, self.name), allow_pickle=True)
 
             self.tst_x  = np.load('%sData/%s/tst_x.npy'  %(self.data_path, self.name),allow_pickle=True)
             self.tst_y  = np.load('%sData/%s/tst_y.npy'  %(self.data_path, self.name),allow_pickle=True)
@@ -211,7 +246,7 @@ class TripleGANDataset(torch.utils.data.Dataset):
         self.transform = transforms.Compose([
             transforms.ToTensor(),
             #transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-            #transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
         ])
 
     def __len__(self):
@@ -224,31 +259,57 @@ class TripleGANDataset(torch.utils.data.Dataset):
         # Labeled sample (cycling through the smaller labeled set)
         #l_idx = idx % len(self.y_l)
         l_idx = self.l_perm[idx % len(self.y_l)]
-
         img_l = self.x_l[l_idx]
         label_l = self.y_l[l_idx]
+
+        img_l = self._fix_shape(self.x_l[l_idx])
+        img_u = self._fix_shape(self.x_u[idx])
+
+        '''if img_l.shape[0] == 3: # If Channels first (C, H, W)
+             img_l = np.transpose(img_l, (1, 2, 0))
+        if img_u.shape[0] == 3:
+             img_u = np.transpose(img_u, (1, 2, 0))'''
+
+        # Apply transforms
+        img_l = self.transform(img_l)
+        img_u = self.transform(img_u)
+
+        label_l = np.array(label_l).astype(np.int64)
+
+        
+        return img_l, torch.from_numpy(label_l), img_u
+
+        '''img_l = self.x_l[l_idx]
+        label_l = self.y_l[l_idx]
+
+        img_l = self.transform(img_l)
+        img_u = self.transform(img_u)
+
         img_l = np.array(img_l).astype(np.float32)
         img_u = np.array(img_u).astype(np.float32)
  
-        #img_l = np.array(img_l, dtype=np.uint8)
-        #img_u = np.array(img_u, dtype=np.uint8)
-        '''if img_l.shape[0] == 3: 
-            img_l = np.moveaxis(img_l, 0, -1) # Converts (3, 32, 32) -> (32, 32, 3)
-        if img_u.shape[0] == 3:
-            img_u = np.moveaxis(img_u, 0, -1)
-
-        #if img_l.size == 3072: # 32*32*3
-            #img_l = img_l.reshape(32, 32, 3)
-            #img_u = img_u.reshape(32, 32, 3)
-
-        if self.transform is not None:
-            img_l = self.transform(img_l)
-            img_u = self.transform(img_u)'''
 
         label_l = np.array(label_l).astype(np.int64)
-        #label_l = torch.tensor(label_l, dtype=torch.long)
+        
+        return img_l, torch.from_numpy(label_l), img_u'''
 
-        #label_l = torch.tensor(label_l).long().squeeze()
-        #label_l = torch.from_numpy(np.array(label_l).astype(np.int64)).squeeze()
-        return img_l, torch.from_numpy(label_l), img_u
+    def _fix_shape(self, img):
+        img = np.asarray(img)
+
+        # Case 1: (C, H, W) → (H, W, C)
+        if img.ndim == 3 and img.shape[0] == 3:
+            img = np.transpose(img, (1, 2, 0))
+
+        # Case 2: (H, W) → (H, W, 3)
+        elif img.ndim == 2:
+            img = np.stack([img] * 3, axis=-1)
+
+        # Case 3: already (H, W, 3)
+        elif img.ndim == 3 and img.shape[-1] == 3:
+            pass
+
+        else:
+            raise ValueError(f"Unexpected image shape: {img.shape}")
+
+        return img.astype(np.float32)
 

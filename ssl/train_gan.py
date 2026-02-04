@@ -15,7 +15,7 @@ def main():
     print("running on", device)
     n_clients = 100
     com_amount = 600      # Total communication rounds
-    local_epochs = 5      # Local epochs per round
+    local_epochs = 6      # Local epochs per round
     batch_size = 64
     lr = 0.0002           # Standard GAN learning rate
     alpha_coef = 0.0001      # FedDC penalty coefficient
@@ -72,6 +72,15 @@ def main():
 
     print("Training Complete. Evaluating Final Global Classifier...")
     evaluate_global_model(global_C, data_obj, device)
+
+'''def weights_init(m):
+    classname = m.__class__.__name__
+    if 'Conv' in classname:
+        # DCGAN papers recommend N(0.0, 0.02)
+        nn.init.normal_(m.weight.data, 0.0, 0.02)
+    elif 'BatchNorm' in classname:
+        nn.init.normal_(m.weight.data, 1.0, 0.02)
+        nn.init.constant_(m.bias.data, 0)'''
 
 if __name__ == "__main__":
     main()

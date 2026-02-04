@@ -57,7 +57,7 @@ class Classifier(nn.Module):
         return x
 
 
-class Generator(nn.Module):
+'''class Generator(nn.Module):
     def __init__(self, z_dim=100, n_label=10, im_size=32, im_chan=3, embed_size=256,
         nfilter=64, nfilter_max=512, actvn=nn.ReLU(),):
         super().__init__()
@@ -120,9 +120,9 @@ class Generator(nn.Module):
         out = torch.tanh(out)
 
         return out
-
-'''class Generator(nn.Module):
-    #Generator generates 128x128.
+'''
+class Generator(nn.Module):
+    """Generator generates 128x128. resnet generator"""
 
     def __init__(
         self,
@@ -170,9 +170,7 @@ class Generator(nn.Module):
             num_classes=num_classes,
         )
         self.b7 = nn.BatchNorm2d(num_features * width_coe)
-        #self.b7 = nn.Identity()
-        self.conv7 = nn.Conv2d(num_features * width_coe, 3, 3, padding=1)
-
+        self.conv7 = nn.Conv2d(num_features * width_coe, 3, 1, 1)
 
     def _initialize(self):
         init.xavier_uniform_(self.l1.weight.tensor)
@@ -183,7 +181,7 @@ class Generator(nn.Module):
         for i in [2, 3, 4]:
             h = getattr(self, "block{}".format(i))(h, y, **kwargs)
         h = self.activation(self.b7(h))
-        return torch.tanh(self.conv7(h))'''
+        return torch.tanh(self.conv7(h))
 
 '''class Discriminator(nn.Module):
     def __init__(self, n_label=10):
@@ -213,7 +211,7 @@ class Generator(nn.Module):
         #self.embed = nn.Embedding(n_label, self.feature_dim)
         self.embed = spectral_norm(nn.Embedding(n_label, self.feature_dim))
 
-    def forward(self, x, y=None):
+    def forward(self, x, y=None, return_features=False):
         x = self.mb_std(x)
         h = self.conv(x)
         h = h.view(h.size(0), -1) # Shape: [Batch, 4096]
@@ -244,7 +242,8 @@ class Generator(nn.Module):
         out = self.actvn(self.conv_img(x))
         out = self.resnet(out)
         out = out.view(batch_size, self.nf0 * self.s0 * self.s0)
-        out = self.fc(self.actvn(out))
+        #out = self.fc(self.actvn(out))
+        final_score = self.fc(actvn(out_flat))
 
         if y is None:
             return out
@@ -255,67 +254,157 @@ class Generator(nn.Module):
             y = y.cuda()
 
         out = out[index, y]
-        return out'''
-
+        #return out
+        if return_features:
+            return out, final_score
+        return final_score'''
+        
 class Discriminator(nn.Module):
-    def __init__(self,
-                 nlabels=10,
-                 size=32,
-                 embed_size=256,
-                 nfilter=64,
-                 nfilter_max=1024,
-                 actvn=nn.ReLU(),):
+    def __init__(
+        self,
+        z_dim=256,
+        n_label=10,
+        im_size=32,
+        im_chan=3,
+        embed_size=256,
+        nfilter=64,
+        nfilter_max=512,
+        actvn=nn.ReLU(),
+    ):
         super().__init__()
+        self.actvn = actvn
         self.embed_size = embed_size
-        self.nlabels = nlabels
+        self.nlabels = n_label
         s0 = self.s0 = 4
         nf = self.nf = nfilter
-        self.actvn = actvn
         nf_max = self.nf_max = nfilter_max
 
+        self.im_size = im_size
+        self.im_chan = im_chan
+
         # Submodules
-        nlayers = int(np.log2(size / s0))
-        self.nf0 = min(nf_max, nf * 2**nlayers)
+        nlayers = int(np.log2(im_size / s0))
+        self.nf0 = min(nf_max, nf * 2 ** nlayers)
 
         blocks = [ResnetBlock(nf, nf, actvn=self.actvn)]
 
         for i in range(nlayers):
-            nf0 = min(nf * 2**i, nf_max)
-            nf1 = min(nf * 2**(i + 1), nf_max)
+            nf0 = min(nf * 2 ** i, nf_max)
+            nf1 = min(nf * 2 ** (i + 1), nf_max)
             blocks += [
                 nn.AvgPool2d(3, stride=2, padding=1),
                 ResnetBlock(nf0, nf1, actvn=self.actvn),
             ]
 
-        self.conv_img = nn.Conv2d(3, 1 * nf, 3, padding=1)
+        self.conv_img = nn.Conv2d(im_chan, 1 * nf, 3, padding=1)
         self.resnet = nn.Sequential(*blocks)
-        self.fc = nn.Linear(self.nf0 * s0 * s0, nlabels)
+        #self.fc = nn.Linear(self.nf0 * s0 * s0, n_label)
+        self.fc = None
 
-    def forward(self, x, y=None, return_features=False):
-        if y is not None:
-            assert (x.size(0) == y.size(0))
+    def forward(self, x, y=None):
         batch_size = x.size(0)
 
         out = self.conv_img(x)
-        features = self.resnet(out)
-        #out = self.resnet(out)
+        out = self.resnet(out)
         #out = out.view(batch_size, self.nf0 * self.s0 * self.s0)
-        #out = self.fc(actvn(out))
-        out_flat = features.view(batch_size, self.nf0 * self.s0 * self.s0)
-        final_score = self.fc(actvn(out_flat))
+        out = out.view(out.size(0), -1)
 
+        # 🔥 FORCE consistency
+        if (self.fc is None) or (self.fc.in_features != out.size(1)):
+            self.fc = nn.Linear(out.size(1), self.nlabels).to(out.device)
 
-        index = torch.LongTensor(range(final_score.size(0)))
+        out = self.fc(self.actvn(out))
+
         if y is None:
-            y = torch.zeros(batch_size).type(torch.int64)
+            return out
+
+        index = torch.LongTensor(range(out.size(0)))
         if x.is_cuda:
             index = index.cuda()
             y = y.cuda()
-        final_score = final_score[index, y]
+        out = out[index, y]
+        return out
 
-        if return_features:
-            return features, final_score
-        return final_score
+
+
+'''class Discriminator(nn.Module):
+    #snresentprojection discriminator
+    def __init__(
+        self,
+        z_dim=256,
+        n_label=10,
+        im_size=32,
+        im_chan=3,
+        embed_size=256,
+        nfilter=64,
+        nfilter_max=512,
+        actvn=nn.ReLU(),
+    ):
+        super(Discriminator, self).__init__()
+        self.num_features = num_features = nfilter
+        self.num_classes = num_classes = n_label
+        self.activation = activation = actvn
+
+        width_coe = 8
+        self.block1 = OptimizedBlock(3, num_features * width_coe)
+        self.block2 = BlockD(
+            num_features * width_coe,
+            num_features * width_coe,
+            activation=activation,
+            downsample=True,
+        )
+        self.block3 = BlockD(
+            num_features * width_coe,
+            num_features * width_coe,
+            activation=activation,
+            downsample=True,
+        )
+        self.block4 = BlockD(
+            num_features * width_coe,
+            num_features * width_coe,
+            activation=activation,
+            downsample=True,
+        )
+        self.l7 = utils.spectral_norm(nn.Linear(num_features * width_coe, 1))
+        if num_classes > 0:
+            self.l_y = utils.spectral_norm(
+                nn.Embedding(num_classes, num_features * width_coe)
+            )
+
+        self._initialize()
+
+    def _initialize(self):
+        init.xavier_uniform_(self.l7.weight.data)
+        optional_l_y = getattr(self, "l_y", None)
+        if optional_l_y is not None:
+            init.xavier_uniform_(optional_l_y.weight.data)
+
+    def forward(self, x, y=None):
+        if y is not None:
+            assert y.dim() == 1, f"Projection D expects y shape [B], got {y.shape}"
+        bs = x.shape[0]
+        h = x
+        for i in range(1, 5):
+            h = getattr(self, "block{}".format(i))(h)
+        h = self.activation(h)
+        # Global pooling
+        #h = torch.sum(h, dim=(2, 3))
+        h = h.view(h.size(0), h.size(1), -1)
+        h = h.sum(dim=2)
+
+        output = self.l7(h)
+        if y is not None:
+            output += torch.sum(self.l_y(y) * h, dim=1, keepdim=True)
+        else:
+            output_list = []
+            for i in range(self.num_classes):
+                ty = torch.ones([bs,], dtype=torch.long) * i
+                toutput = output + torch.sum(
+                    self.l_y(ty.to(x.device)) * h, dim=1, keepdim=True
+                )
+                output_list.append(toutput)
+            output = torch.cat(output_list, dim=1)
+        return output'''
 
 def actvn(x):
     out = torch.relu(x)
@@ -391,6 +480,84 @@ def replace_bn_with_gn(module, num_groups=8):
             setattr(module, name, gn)
         else:
             replace_bn_with_gn(child, num_groups)
+
+class OptimizedBlock(nn.Module):
+    def __init__(self, in_ch, out_ch, ksize=3, pad=1, activation=F.relu):
+        super(OptimizedBlock, self).__init__()
+        self.activation = activation
+
+        self.c1 = utils.spectral_norm(nn.Conv2d(in_ch, out_ch, ksize, 1, pad))
+        self.c2 = utils.spectral_norm(nn.Conv2d(out_ch, out_ch, ksize, 1, pad))
+        self.c_sc = utils.spectral_norm(nn.Conv2d(in_ch, out_ch, 1, 1, 0))
+
+        self._initialize()
+
+    def _initialize(self):
+        init.xavier_uniform_(self.c1.weight.data, math.sqrt(2))
+        init.xavier_uniform_(self.c2.weight.data, math.sqrt(2))
+        init.xavier_uniform_(self.c_sc.weight.data)
+
+    def forward(self, x):
+        return self.shortcut(x) + self.residual(x)
+
+    def shortcut(self, x):
+        return self.c_sc(F.avg_pool2d(x, 2))
+
+    def residual(self, x):
+        h = self.activation(self.c1(x))
+        return F.avg_pool2d(self.c2(h), 2)
+
+class BlockD(nn.Module):
+    def __init__(
+        self,
+        in_ch,
+        out_ch,
+        h_ch=None,
+        ksize=3,
+        pad=1,
+        activation=F.relu,
+        downsample=False,
+    ):
+        super(BlockD, self).__init__()
+
+        self.activation = activation
+        self.downsample = downsample
+
+        self.learnable_sc = (in_ch != out_ch) or downsample
+        if h_ch is None:
+            h_ch = in_ch
+        else:
+            h_ch = out_ch
+
+        self.c1 = utils.spectral_norm(nn.Conv2d(in_ch, h_ch, ksize, 1, pad))
+        self.c2 = utils.spectral_norm(nn.Conv2d(h_ch, out_ch, ksize, 1, pad))
+        if self.learnable_sc:
+            self.c_sc = utils.spectral_norm(nn.Conv2d(in_ch, out_ch, 1, 1, 0))
+
+        self._initialize()
+
+    def _initialize(self):
+        init.xavier_uniform_(self.c1.weight.data, math.sqrt(2))
+        init.xavier_uniform_(self.c2.weight.data, math.sqrt(2))
+        if self.learnable_sc:
+            init.xavier_uniform_(self.c_sc.weight.data)
+
+    def forward(self, x):
+        return self.shortcut(x) + self.residual(x)
+
+    def shortcut(self, x):
+        if self.learnable_sc:
+            x = self.c_sc(x)
+        if self.downsample:
+            return F.avg_pool2d(x, 2)
+        return x
+
+    def residual(self, x):
+        h = self.c1(self.activation(x))
+        h = self.c2(self.activation(h))
+        if self.downsample:
+            h = F.avg_pool2d(h, 2)
+        return h
 
 class ConditionalBatchNorm2d(nn.BatchNorm2d):
 
@@ -473,7 +640,7 @@ class CategoricalConditionalBatchNorm2d(ConditionalBatchNorm2d):
 
 def _upsample(x):
     h, w = x.size()[2:]
-    return F.interpolate(x, size=(h * 2, w * 2), mode="bilinear")
+    return F.interpolate(x, size=(h * 2, w * 2), mode="bilinear", align_corners=False)
 
 
 class Block(nn.Module):
@@ -541,161 +708,6 @@ class Block(nn.Module):
         else:
             h = self.b2(h)
         return self.c2(self.activation(h))
-
-'''class BlockD(nn.Module):
-    def __init__(
-        self,
-        in_ch,
-        out_ch,
-        h_ch=None,
-        ksize=3,
-        pad=1,
-        activation=F.relu,
-        downsample=False,
-    ):
-        super(BlockD, self).__init__()
-
-        self.activation = activation
-        self.downsample = downsample
-
-        self.learnable_sc = (in_ch != out_ch) or downsample
-        if h_ch is None:
-            h_ch = in_ch
-        else:
-            h_ch = out_ch
-
-        self.c1 = utils.spectral_norm(nn.Conv2d(in_ch, h_ch, ksize, 1, pad))
-        self.c2 = utils.spectral_norm(nn.Conv2d(h_ch, out_ch, ksize, 1, pad))
-        if self.learnable_sc:
-            self.c_sc = utils.spectral_norm(nn.Conv2d(in_ch, out_ch, 1, 1, 0))
-
-        self._initialize()
-
-    def _initialize(self):
-        init.xavier_uniform_(self.c1.weight.data, math.sqrt(2))
-        init.xavier_uniform_(self.c2.weight.data, math.sqrt(2))
-        if self.learnable_sc:
-            init.xavier_uniform_(self.c_sc.weight.data)
-
-    def forward(self, x):
-        return self.shortcut(x) + self.residual(x)
-
-    def shortcut(self, x):
-        if self.learnable_sc:
-            x = self.c_sc(x)
-        if self.downsample:
-            return F.avg_pool2d(x, 2)
-        return x
-
-    def residual(self, x):
-        h = self.c1(self.activation(x))
-        h = self.c2(self.activation(h))
-        if self.downsample:
-            h = F.avg_pool2d(h, 2)
-        return h
-
-
-class OptimizedBlock(nn.Module):
-    def __init__(self, in_ch, out_ch, ksize=3, pad=1, activation=F.relu):
-        super(OptimizedBlock, self).__init__()
-        self.activation = activation
-
-        self.c1 = utils.spectral_norm(nn.Conv2d(in_ch, out_ch, ksize, 1, pad))
-        self.c2 = utils.spectral_norm(nn.Conv2d(out_ch, out_ch, ksize, 1, pad))
-        self.c_sc = utils.spectral_norm(nn.Conv2d(in_ch, out_ch, 1, 1, 0))
-
-        self._initialize()
-
-    def _initialize(self):
-        init.xavier_uniform_(self.c1.weight.data, math.sqrt(2))
-        init.xavier_uniform_(self.c2.weight.data, math.sqrt(2))
-        init.xavier_uniform_(self.c_sc.weight.data)
-
-    def forward(self, x):
-        return self.shortcut(x) + self.residual(x)
-
-    def shortcut(self, x):
-        return self.c_sc(F.avg_pool2d(x, 2))
-
-    def residual(self, x):
-        h = self.activation(self.c1(x))
-        return F.avg_pool2d(self.c2(h), 2)'''
-
-
-'''class Discriminator(nn.Module):
-    #SNResNetProjectionDiscriminator
-    def __init__(
-        self,
-        z_dim=256,
-        n_label=10,
-        im_size=32,
-        im_chan=3,
-        embed_size=256,
-        nfilter=64,
-        nfilter_max=512,
-        actvn=nn.ReLU(),
-    ):
-        super(Discriminator, self).__init__()
-        self.num_features = num_features = nfilter
-        self.num_classes = num_classes = n_label
-        self.activation = activation = actvn
-
-        width_coe = 8
-        self.block1 = OptimizedBlock(3, num_features * width_coe)
-        self.block2 = BlockD(
-            num_features * width_coe,
-            num_features * width_coe,
-            activation=activation,
-            downsample=True,
-        )
-        self.block3 = BlockD(
-            num_features * width_coe,
-            num_features * width_coe,
-            activation=activation,
-            downsample=True,
-        )
-        self.block4 = BlockD(
-            num_features * width_coe,
-            num_features * width_coe,
-            activation=activation,
-            downsample=True,
-        )
-        self.l7 = utils.spectral_norm(nn.Linear(num_features * width_coe, 1))
-        if num_classes > 0:
-            self.l_y = utils.spectral_norm(
-                nn.Embedding(num_classes, num_features * width_coe)
-            )
-
-        self._initialize()
-
-    def _initialize(self):
-        init.xavier_uniform_(self.l7.weight.data)
-        optional_l_y = getattr(self, "l_y", None)
-        if optional_l_y is not None:
-            init.xavier_uniform_(optional_l_y.weight.data)
-
-    def forward(self, x, y=None):
-        bs = x.shape[0]
-        h = x
-        for i in range(1, 5):
-            h = getattr(self, "block{}".format(i))(h)
-        h = self.activation(h)
-        # Global pooling
-        h = torch.sum(h, dim=(2, 3))
-        output = self.l7(h)
-        if y is not None:
-            y = y.view(-1)
-            output += torch.sum(self.l_y(y) * h, dim=1, keepdim=True)
-        else:
-            output_list = []
-            for i in range(self.num_classes):
-                ty = torch.ones([bs,], dtype=torch.long) * i
-                toutput = output + torch.sum(
-                    self.l_y(ty.to(x.device)) * h, dim=1, keepdim=True
-                )
-                output_list.append(toutput)
-            output = torch.cat(output_list, dim=1)
-        return output'''
 
 class MinibatchStdDev(nn.Module):
     def __init__(self):
