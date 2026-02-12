@@ -4,3 +4,7 @@
 baseline/Folder/
 ssl/Folder/
 ssl/gen_images/*
+
+
+generator/data/*
+generator/gen_images/*
