@@ -149,6 +149,16 @@ class DatasetObject:
 
                 self.channels = 1; self.width = 28; self.height = 28; self.n_cls = 10;
 
+            if self.dataset == 'fashion_mnist':
+                transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.2860,), (0.3530,))])
+                trnset = torchvision.datasets.FashionMNIST(root='%sData/Raw' %self.data_path,
+                                                           train=True, download=True, transform=transform)
+                tstset = torchvision.datasets.FashionMNIST(root='%sData/Raw' %self.data_path,
+                                                           train=False, download=True, transform=transform)
+                trn_load = torch.utils.data.DataLoader(trnset, batch_size=60000, shuffle=False, num_workers =1)
+                tst_load = torch.utils.data.DataLoader(tstset, batch_size=10000, shuffle=False, num_workers=1)
+                self.channels = 1; self.width = 28; self.height = 28; self.n_cls = 10;
+
             # Shuffle Data
             np.random.seed(self.seed)
             rand_perm = np.random.permutation(len(trn_y))
@@ -391,7 +401,7 @@ class Dataset(torch.utils.data.Dataset):
 
     def __init__(self, data_x, data_y=True, train=False, dataset_name=''):
         self.name = dataset_name
-        if self.name == 'mnist' or self.name == 'synt' or self.name == 'emnist' :
+        if self.name == 'mnist' or self.name == 'synt' or self.name == 'emnist' or self.name == 'fashion_mnist':
             # Handle data_x
             if isinstance(data_x, np.ndarray) and data_x.dtype == object:
                 if data_x.ndim == 0:
@@ -454,7 +464,7 @@ class Dataset(torch.utils.data.Dataset):
         return len(self.X_data)
 
     def __getitem__(self, idx):
-        if self.name == 'mnist' or self.name == 'synt' or self.name == 'emnist':
+        if self.name == 'mnist' or self.name == 'synt' or self.name == 'emnist' or self.name == 'fashion_mnist':
             X = self.X_data[idx, :]
             if isinstance(self.y_data, bool):
                 return X

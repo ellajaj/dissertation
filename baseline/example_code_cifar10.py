@@ -30,14 +30,14 @@ def main():
     #data_obj.limit_dataset(max_samples=6000, min_per_class=600, verbose=False)
 
     model_name = 'Resnet18'
-    print("running on resent18")
+    print("running on same resent18")
     #model_name = 'cifar10_LeNet' # Model type
     #model_name = 'Resnet50'
 
     ###
     # Common hyperparameters
 
-    com_amount = 600
+    com_amount = 1000
     save_period = 100
     weight_decay = 1e-3
     batch_size = 50
