@@ -30,7 +30,9 @@ def train_FedDC(data_obj, model_func_G, model_func_C, model_func_D,
 
     weight_list = np.asarray([len(clnt_y[i]) for i in range(n_clnt)])
     weight_list = weight_list / np.sum(weight_list) * n_clnt
-    if (not trial) and (not os.path.exists('%sModel/%s/%s' %(data_path, data_obj.name, suffix))):
+
+    model_dir = ('%sModel/%s/%s' %(data_path, data_obj.name, suffix))
+    if not os.path.exists(model_dir):
         os.makedirs('%sModel/%s/%s' %(data_path, data_obj.name, suffix), exist_ok=True)
 
     n_par_G = len(get_mdl_params([init_model_G])[0])
@@ -42,15 +44,15 @@ def train_FedDC(data_obj, model_func_G, model_func_C, model_func_D,
     clnt_params_list = np.zeros((n_clnt, n_par)).astype('float32')
     
     # Persistent local discriminators (not federated)
-    local_Ds = [model_func_D().to(device) for _ in range(n_clnt)]
+    local_Ds = [model_func_D(data_obj.dataset).to(device) for _ in range(n_clnt)]
     
     init_par_G = get_mdl_params([init_model_G])[0]
     init_par_C = get_mdl_params([init_model_C])[0]
     init_combined = np.concatenate([init_par_G, init_par_C])
     clnt_params_list = np.ones(n_clnt).reshape(-1, 1) * init_combined.reshape(1, -1)
 
-    cur_cld_G = model_func_G().to(device)
-    cur_cld_C = model_func_C().to(device)
+    cur_cld_G = model_func_G(data_obj.dataset).to(device)
+    cur_cld_C = model_func_C(data_obj.dataset).to(device)
     cur_cld_G.load_state_dict(init_model_G.state_dict())
     cur_cld_C.load_state_dict(init_model_C.state_dict())
     cld_mdl_param = init_combined.copy()
@@ -71,125 +73,140 @@ def train_FedDC(data_obj, model_func_G, model_func_C, model_func_D,
 
     writer = SummaryWriter('%sRuns/%s/%s' %(data_path, data_obj.name, suffix))
 
-    if not trial:
-        #Initialize Inception 
-        '''inception_model = inception_v3(pretrained=True, transform_input=False).to(device)
-        inception_model.fc = nn.Identity()
-        inception_model.eval()
+    #Initialize Inception 
+    '''inception_model = inception_v3(pretrained=True, transform_input=False).to(device)
+    inception_model.fc = nn.Identity()
+    inception_model.eval()
 
-        # Pre-calculate Real Stats once
-        print("Pre-calculating real image statistics for FID...")
-        
-        mu_real, sigma_real = precalculate_real_stats(data_obj.tst_x, inception_model, device)'''
+    # Pre-calculate Real Stats once
+    print("Pre-calculating real image statistics for FID...")
+    
+    mu_real, sigma_real = precalculate_real_stats(data_obj.tst_x, inception_model, device)'''
 
-        for i in range(com_amount):
-            #print("round ",i)
-            # Client selection
-            inc_seed = 0
-            while True:
-                np.random.seed(i + rand_seed + inc_seed)
-                act_list = np.random.uniform(size=n_clnt)
-                selected_clnts = np.sort(np.where(act_list <= act_prob)[0])
-                inc_seed += 1
-                if len(selected_clnts) != 0: break
+    '''# store optimizer states for G, C, D
+    client_opt_states = {
+        client_id: {'G': None, 'C': None, 'D': None} 
+        for client_id in range(n_clnt)
+    }'''
 
-            global_mdl_tensor = torch.tensor(cld_mdl_param, dtype=torch.float32, device=device)
-            delta_g_sum = np.zeros(n_par)
+    for i in range(com_amount):
+        #print("round ",i)
+        # Client selection
+        inc_seed = 0
+        while True:
+            np.random.seed(i + rand_seed + inc_seed)
+            act_list = np.random.uniform(size=n_clnt)
+            selected_clnts = np.sort(np.where(act_list <= act_prob)[0])
+            inc_seed += 1
+            if len(selected_clnts) != 0: break
 
-            for clnt in selected_clnts:
-                #print('---- Round %d, Training client %d' % (i, clnt))
-                
-                # Data Split (Semi-Supervised)
-                #tx, ty = clnt_x[clnt], clnt_y[clnt]
-                '''idx = np.random.permutation(len(ty))
-                split = int(len(ty) * 0.7) # 10% Labeled
-                #xl, yl = tx[idx[:split]], ty[idx[:split]]
-                xl, yl = stratified_labeled_split(tx, ty, frac=0.7)
-                xu = tx[idx[split:]]'''
-                xl, yl = clnt_x[clnt], clnt_y[clnt]
-                xu = unlabeled_x
+        global_mdl_tensor = torch.tensor(cld_mdl_param, dtype=torch.float32, device=device)
+        delta_g_sum = np.zeros(n_par)
 
-                local_G = model_func_G().to(device)
-                local_C = model_func_C().to(device)
-                set_combined_params(local_G, local_C, cld_mdl_param, n_par_G)
-                
-
-                local_G, local_C, s_loss, a_loss, p_loss, d_loss = train_model_TripleFedDC(
-                    local_G, local_C, local_Ds[clnt],
-                    alpha_coef / weight_list[clnt], i,
-                    state_gadient_diffs[clnt], 
-                    state_gadient_diffs[-1] / weight_list[clnt],
-                    global_mdl_tensor, 
-                    torch.tensor(parameter_drifts[clnt], device=device),
-                    xl, yl, xu,
-                    learning_rate * (lr_decay_per_round ** i),
-                    batch_size, epoch, weight_decay
-                )# should these be called local G??
-                            
-
-                # Update FedDC tracking    
-                delta_p = np.zeros(n_par)
-                curr_par_C = get_mdl_params([local_C])[0]
-                global_par_C = cld_mdl_param[n_par_G:] # Slicing out the C part
-                delta_p_C = curr_par_C - global_par_C
-                delta_p[n_par_G:] = delta_p_C
-
-                # Only update drift for C indices
-                #parameter_drifts[clnt][n_par_G:] += delta_p_C
-                parameter_drifts[clnt] += delta_p
-                
-                #label_l = torch.from_numpy(np.array(label_l).astype(np.int64)).squeeze()
-                #beta = 1 / (n_minibatch * epoch) / (learning_rate * (lr_decay_per_round ** i))
-                beta = 0.5
-                state_g = state_gadient_diffs[clnt] - (state_gadient_diffs[-1]/weight_list[clnt]) + beta * (-delta_p)
-                
-                delta_g_sum += (state_g - state_gadient_diffs[clnt]) * weight_list[clnt]
-                state_gadient_diffs[clnt] = state_g
-                clnt_params_list[clnt] = get_combined_params(local_G, local_C, n_par)
-
-                print(f" Client {clnt} | Sup: {s_loss:.4f} | Adv: {a_loss:.4f} | prox: {p_loss:.4f} | drift: {d_loss:.4f}")
-
-            avg_mdl_param_sel = np.mean(clnt_params_list[selected_clnts], axis=0)
-            state_gadient_diffs[-1] += (1 / n_clnt) * delta_g_sum
-            cld_mdl_param = avg_mdl_param_sel + np.mean(parameter_drifts, axis=0)
-
-            # Update global evaluation model (Classifier only for Accuracy)
-            global_G, global_C =set_combined_params(cur_cld_G, cur_cld_C, cld_mdl_param, n_par_G)
+        for clnt in selected_clnts:
+            #print('---- Round %d, Training client %d' % (i, clnt))
             
-            loss_t, acc_t = get_acc_loss(data_obj.tst_x, data_obj.tst_y, cur_cld_C, data_obj.dataset)
-            tst_sel_clt_perf[i] = [loss_t, acc_t]
-            #print(len(cld_mdl_param)
-            writer.add_scalars(
-                "accuracy",
-                {"Accuracy gantest18": acc_t},i)
-            writer.add_scalars(
-                "loss",
-                {"Loss gantest18": loss_t,},i)
+            # Data Split (Semi-Supervised)
+            #tx, ty = clnt_x[clnt], clnt_y[clnt]
+            '''idx = np.random.permutation(len(ty))
+            split = int(len(ty) * 0.7) # 10% Labeled
+            #xl, yl = tx[idx[:split]], ty[idx[:split]]
+            xl, yl = stratified_labeled_split(tx, ty, frac=0.7)
+            xu = tx[idx[split:]]'''
+            xl, yl = clnt_x[clnt], clnt_y[clnt]
+            n_u = len(xl) * 2  
+            idx = np.random.choice(len(unlabeled_x), n_u, replace=False)
+            xu = unlabeled_x[idx]
+            #xu = unlabeled_x
+            #print("xl size:", xl.shape)
+            #print("xu size:", xu.shape)
 
-            '''if i % 10 == 0:
-                #fid = compute_fid(global_G, data_obj, device)
-                fid = compute_fid(global_G, inception_model, mu_real, sigma_real, device, num_fake=5000)
-                print(f"Round {i} | FID: {fid:.2f}")
-                writer.add_scalars(
-                "FID",
-                {"FID gantest15": fid,},i)'''
-            print("**** Round %d, Test Accuracy: %.4f, loss = %.4f" % (i+1, acc_t, loss_t))
+            local_G = model_func_G(data_obj.dataset).to(device)
+            local_C = model_func_C(data_obj.dataset).to(device)
+            set_combined_params(local_G, local_C, cld_mdl_param, n_par_G)
 
+            local_G, local_C, s_loss, a_loss, p_loss, d_loss = train_model_TripleFedDC(
+                local_G, local_C, local_Ds[clnt],
+                alpha_coef / weight_list[clnt], i, data_obj,
+                state_gadient_diffs[clnt], 
+                state_gadient_diffs[-1] / weight_list[clnt],
+                global_mdl_tensor, 
+                torch.tensor(parameter_drifts[clnt], device=device),
+                xl, yl, xu,
+                learning_rate * (lr_decay_per_round ** i),
+                sch_step, sch_gamma,
+                batch_size, epoch, weight_decay,
+            )
+
+            # Update FedDC tracking    
+            delta_p = np.zeros(n_par)
+            curr_par_C = get_mdl_params([local_C])[0]
+            global_par_C = cld_mdl_param[n_par_G:] # Slicing out the C part
+            delta_p_C = curr_par_C - global_par_C
+            delta_p[n_par_G:] = delta_p_C
+            #curr_par = get_combined_params(local_G, local_C, n_par)
+            #delta_p = curr_par - cld_mdl_param
+            parameter_drifts[clnt] += delta_p
+            
+            #beta = 1 / (n_minibatch * epoch) / (learning_rate * (lr_decay_per_round ** i))
+            beta = 0.5
+            #beta = 1.0 / (n_minibatch * epoch * learning_rate)
+            state_g = state_gadient_diffs[clnt] - (state_gadient_diffs[-1]/weight_list[clnt]) + beta * (-delta_p)
+            
+            delta_g_sum += (state_g - state_gadient_diffs[clnt]) * weight_list[clnt]
+            state_gadient_diffs[clnt] = state_g
+            clnt_params_list[clnt] = get_combined_params(local_G, local_C, n_par)
+
+            print(f" Client {clnt} | Sup: {s_loss:.4f} | Adv: {a_loss:.4f} | prox: {p_loss:.4f} | drift: {d_loss:.4f}")
+
+        avg_mdl_param_sel = np.mean(clnt_params_list[selected_clnts], axis=0)
+        state_gadient_diffs[-1] += (1 / n_clnt) * delta_g_sum
+        cld_mdl_param = avg_mdl_param_sel + np.mean(parameter_drifts, axis=0)#avg_mdl_param_sel = np.mean(clnt_params_list[selected_clnts], axis=0)
+        
+        # Update global evaluation model (Classifier only for Accuracy)
+        global_G, global_C =set_combined_params(cur_cld_G, cur_cld_C, cld_mdl_param, n_par_G)
+        
+        loss_t, acc_t = get_acc_loss(data_obj.tst_x, data_obj.tst_y, cur_cld_C, data_obj.dataset)
+        tst_sel_clt_perf[i] = [loss_t, acc_t]
+        #print(len(cld_mdl_param)
+        writer.add_scalars(
+            "accuracy",
+            {"Accuracy fm2": acc_t},i)
+        writer.add_scalars(
+            "loss",
+            {"Loss fm2": loss_t,},i)
+
+        '''if i % 10 == 0:
+            #fid = compute_fid(global_G, data_obj, device)
+            fid = compute_fid(global_G, inception_model, mu_real, sigma_real, device, num_fake=5000)
+            print(f"Round {i} | FID: {fid:.2f}")
+            writer.add_scalars(
+            "FID",
+            {"FID gantest15": fid,},i)'''
+        print("**** Round %d, Test Accuracy: %.4f, loss = %.4f" % (i+1, acc_t, loss_t))
+
+        if (i + 1) % save_period == 0:
+            save_path = os.path.join(model_dir, f'checkpoint_round_{i+1}.pt')
+
+            torch.save({
+                'round': i + 1,
+                'model_G_state': cur_cld_G.state_dict(),
+                'model_C_state': cur_cld_C.state_dict(),
+            }, save_path)
+
+            print(f"Saved checkpoint at round {i+1}")
 
     return cur_cld_C, tst_sel_clt_perf
 
 
-def train_model_TripleFedDC(G, C, D, alpha, round_idx,
+def train_model_TripleFedDC(G, C, D, alpha, round_idx, data_obj,
                             local_update_last, global_update_last, global_mdl_param, hist_i, 
                             trn_x_labeled, trn_y_labeled, trn_x_unlabeled,
-                            learning_rate, batch_size, epoch, weight_decay):
-    #torch.autograd.set_detect_anomaly(True) #debugging
+                            learning_rate, sch_step, sch_gamma, batch_size, epoch, weight_decay): 
     sup_loss_tot, adv_loss_tot, prox_loss_tot, drift_loss_tot = 0, 0, 0, 0
-    #warmup_rounds = 20
-    #threshold = 0.95
     count = 0
 
-    C_T = type(C)().to(device) 
+    C_T = type(C)(data_obj.dataset).to(device) 
     C_T.load_state_dict(C.state_dict())
     for p in C_T.parameters(): p.requires_grad_(False)
     C_T.train()
@@ -201,13 +218,20 @@ def train_model_TripleFedDC(G, C, D, alpha, round_idx,
     alpha_C = alpha * 0.1 if round_idx > 20 else 0.0
 
     opt_G = torch.optim.Adam(G.parameters(), lr=learning_rate, betas=(0.5, 0.999))
-    opt_C = torch.optim.Adam(C.parameters(), lr=learning_rate, betas=(0.5, 0.999))
-    opt_D = torch.optim.Adam(D.parameters(), lr=learning_rate * 0.5, betas=(0.5, 0.999))
+    #opt_C = torch.optim.Adam(C.parameters(), lr=learning_rate, betas=(0.5, 0.999))
+    opt_D = torch.optim.Adam(D.parameters(), lr=learning_rate * 0.2, betas=(0.5, 0.999))
+    #opt_G = torch.optim.SGD(G.parameters(), lr=learning_rate, weight_decay=weight_decay, momentum=0.9)
+    opt_C = torch.optim.SGD(C.parameters(), lr=learning_rate, weight_decay=weight_decay, momentum=0.9)
+    #opt_D = torch.optim.SGD(D.parameters(), lr=learning_rate * 0.5, weight_decay=weight_decay, momentum=0.9)
+
+    sched_G = torch.optim.lr_scheduler.StepLR(opt_G, step_size=sch_step, gamma=sch_gamma)
+    sched_C = torch.optim.lr_scheduler.StepLR(opt_C, step_size=sch_step, gamma=sch_gamma)
+    sched_D = torch.optim.lr_scheduler.StepLR(opt_D, step_size=sch_step, gamma=sch_gamma)
 
     state_update_diff = torch.tensor(-local_update_last + global_update_last, dtype=torch.float32, device=device)
     
     trn_gen = torch.utils.data.DataLoader(
-        TripleGANDataset(trn_x_labeled, trn_y_labeled, trn_x_unlabeled, train=True), 
+        TripleGANDataset(trn_x_labeled, trn_y_labeled, trn_x_unlabeled, data_obj.dataset), 
         batch_size=batch_size, shuffle=True
     )
 
@@ -225,9 +249,8 @@ def train_model_TripleFedDC(G, C, D, alpha, round_idx,
                 label_l = label_l.squeeze()
             
             batch_sz = img_l.size(0) 
-
-            decay_factor = max(0, 1.0 - (round_idx / 50.0))
-            current_noise_std = 0.05 + (0.05 * decay_factor)
+            #decay_factor = max(0, 1.0 - (round_idx / 50.0))
+            #current_noise_std = 0.05 + (0.05 * decay_factor)
 
             ######## Train Discriminator D
             opt_D.zero_grad()
@@ -235,10 +258,19 @@ def train_model_TripleFedDC(G, C, D, alpha, round_idx,
             #make discriminator inputs noisy
             #img_l_noisy = add_instance_noise(img_l, current_noise_std)
                 
-            d_real = D(img_l, label_l.long())
-            d_real_loss = torch.mean(torch.nn.functional.softplus(1.0 - d_real))
+            #d_real = D(img_l, label_l.long())
+
+            ### real - labelled data 
+            with torch.no_grad():
+                _, feat_l = C(img_l, return_features=True)
+            
+            d_real = D(img_l, label_l.long(), feat_l.detach())
+            #d_real_loss = torch.mean(torch.nn.functional.softplus(1.0 - d_real))
+            d_real_loss = torch.mean(F.relu(1.0 - d_real))
             y_wrong = torch.randint(0, 10, (batch_sz,), device=device)
-            d_wrong_loss = torch.mean(F.softplus(D(img_l, y_wrong)))
+            d_wrong_loss = torch.mean(F.softplus(D(img_l, y_wrong, feat_l.detach())))
+
+            ## Fake data 
             
             # Synthetic Data from G
             z = torch.randn(batch_sz, G.z_dim).to(device)
@@ -247,36 +279,43 @@ def train_model_TripleFedDC(G, C, D, alpha, round_idx,
 
             #img_fake_noisy = add_instance_noise(img_fake.detach(), current_noise_std)
             #img_u_noisy    = add_instance_noise(img_u, current_noise_std)
+            # Get features for the fake image (D checks consistency of Fake Img + Fake Feat)
+            with torch.no_grad():
+                _, feat_fake = C(img_fake, return_features=True)
 
-            d_fake_loss = torch.mean(torch.nn.functional.softplus(1.0 + D(img_fake, y_gen)))
+            #d_fake_loss = torch.mean(torch.nn.functional.softplus(1.0 + D(img_fake, y_gen, feat_fake.detach())))
             #d_fake_loss = torch.mean(torch.nn.functional.softplus(D(img_fake, y_gen)))
-            #debug
-            diversity_score = torch.std(img_fake, dim=0).mean().item()
-            #print(f"Generator Diversity Score: {diversity_score:.4f}")
-            if diversity_score < 0.01:
-                print("WARNING: COMPLETE MODE COLLAPSE DETECTED.")
-            
-            logits_u = C(img_u).detach()#classifier sees clean images
+            d_fake =  D(img_fake, y_gen, feat_fake.detach())
+            d_fake_loss = torch.mean(F.relu(1.0 + d_fake))
+
+            ### Pseudo labelled data 
+            #logits_u = C(img_u, return_features=True).detach()#classifier sees clean images
+            with torch.no_grad():
+                logits_u, feat_u = C(img_u, return_features=True)
             y_pseudo = torch.argmax(logits_u, dim=1)
 
             #probs_u = torch.softmax(logits_u, dim=1)
             #d_pseudo_loss = torch.mean(torch.nn.functional.softplus(D(img_u, y_pseudo)))
-            d_pseudo_loss = torch.mean(torch.nn.functional.softplus(1.0 + D(img_u, y_pseudo)))#treat pseudo labelled data as real
+            d_pseudo_loss = torch.mean(torch.nn.functional.softplus(1.0 + D(img_u, y_pseudo, feat_u.detach())))#treat pseudo labelled data as real
             
             loss_D = d_real_loss + d_fake_loss + 0.5 * d_pseudo_loss
             #d_loss is too harsh early on 
             if round_idx > 10:
                 loss_D += d_wrong_loss
 
+            '''if count % 50 == 0:
+                print(f"[D scores] real: {d_real.mean().item():.2f} | "
+                    f"fake: {D(img_fake, y_gen, feat_fake.detach()).mean().item():.2f}")'''
+
             loss_D.backward()
+            torch.nn.utils.clip_grad_norm_(D.parameters(), max_norm=10.0)
+
+            '''if count % 50 == 0:
+                print(f"[D] loss: {loss_D.item():.4f} | grad_norm: {grad_norm(D):.4e}")'''
+
             opt_D.step()
 
             ########### Train Generator G 
-            #for p in D.parameters():
-                #p.requires_grad_(False)
-            #for p in C.parameters():
-                #p.requires_grad_(False)
-
             opt_G.zero_grad()
 
             #fresh z and y to prevent morisation collapse 
@@ -288,17 +327,20 @@ def train_model_TripleFedDC(G, C, D, alpha, round_idx,
 
             lz_image = torch.mean(torch.abs(fake_g - fake_g2)) 
             lz_z     = torch.mean(torch.abs(z_g - z2))
+
+            with torch.no_grad():
+                _, feat_g = C(fake_g, return_features=True)
             
             eps = 1e-5
             # We want images to differ when Z differs.
             # Inverse distance: minimizing this MAXIMIZES the distance between images
-            #loss_diversity = 1.0 / (lz_image / (lz_z + eps) + eps)
-            '''ratio = lz_image / (lz_z + eps)
-            loss_diversity = torch.max(torch.tensor(0.0).to(device), 0.8 - ratio)'''
+            loss_diversity = 1.0 / (lz_image / (lz_z + eps) + eps)
+            ratio = lz_image / (lz_z + eps)
+            loss_diversity = torch.max(torch.tensor(0.0).to(device), 0.8 - ratio)
 
             #loss_G_adv = torch.mean(torch.nn.functional.softplus(-D(fake_g, y_g)))
             #fake_g_noisy = add_instance_noise(fake_g, current_noise_std)
-            loss_G_adv = -torch.mean(D(fake_g, y_g))
+            loss_G_adv = -torch.mean(D(fake_g, y_g, feat_g.detach()))
 
             params_G = torch.cat([p.view(-1) for p in G.parameters()])
             state_diff_G = state_update_diff[:len(params_G)]
@@ -309,23 +351,44 @@ def train_model_TripleFedDC(G, C, D, alpha, round_idx,
             loss_cg_G = torch.sum(params_G * state_diff_G.detach())
             loss_cg_G = torch.clamp(loss_cg_G, min=-10.0, max=10.0)
 
-            #with torch.no_grad():
-            #logits = C(fake_g)
-            #loss_G_class = torch.nn.functional.cross_entropy(logits, y_g)
-            #lambda_cls = max(0.05, 0.5 * (1 - round_idx / 200)) # anneal
-            #total_G_loss = loss_G_adv + 0.001 * (loss_cp_G + loss_cg_G)
-            #total_G_loss = loss_G_adv + (loss_G_class) + (0.1*div_loss)
-            total_G_loss = loss_G_adv +  0.01*(loss_cp_G + loss_cg_G) #+ 0.5 * loss_G_class +loss_diversity
+            #class loss to get some class condtional differences in G images 
+            logits = C(fake_g)
+            loss_G_class = torch.nn.functional.cross_entropy(logits, y_g) * 0.5
+            loss_G_class = torch.clamp(loss_G_class, max=2.0)
 
-            #real_feats, _ = D(img_l, label_l, return_features=True)
-            #fake_feats, _ = D(fake_g, y_g, return_features=True)
-            #loss_feature_matching = torch.mean(torch.abs(real_feats.mean(0) - fake_feats.mean(0)))
+            fed_weight = max(0.1, 1.0 - round_idx / 600)
+            loss_cg_G *= fed_weight
+
+            total_G_loss = loss_G_adv + (loss_cp_G + loss_cg_G) + loss_G_class +loss_diversity
+
+            '''with torch.no_grad():
+                _, feat_g2 = C(fake_g, return_features=True)
+            fake_feats = D(fake_g, y_g, feat_g2.detach())
+
+            real_feats = D(img_l, label_l, feat_l.detach())
+            #fake_feats = D(fake_g, y_g, feat_fake.detach())
+            loss_feature_matching = torch.mean(torch.abs(real_feats.mean(0) - fake_feats.mean(0)))
             # Scale it (10.0 is usually a good starting weight)
-            #total_G_loss += 10.0 * loss_feature_matching
+            total_G_loss += 0.1 * loss_feature_matching'''
             
-    
+            '''if count % 50 == 0:
+                print("[G breakdown]",
+                    "adv:", loss_G_adv.item(),
+                    "cp:", loss_cp_G.item(),
+                    "cg:", loss_cg_G.item(),
+                    "class",loss_G_class.item())
+                    #"fm:", loss_feature_matching.item())'''
 
             total_G_loss.backward()
+            torch.nn.utils.clip_grad_norm_(G.parameters(), max_norm=10.0)
+
+            '''if count % 50 == 0:
+                print(f"[G] adv: {loss_G_adv.item():.4f} | "
+                    f"cp: {loss_cp_G.item():.4f} | "
+                    f"cg: {loss_cg_G.item():.4f} | "
+                    f"class: {loss_G_class.item():.4f} | "
+                    #f"fm: {loss_feature_matching.item():.4f} | "
+                    f"grad_norm: {grad_norm(G):.4e}")'''
 
             # Discriminator Confidence
             # If D is outputting 50.0 or -50.0, the gradients for G will vanish
@@ -334,67 +397,28 @@ def train_model_TripleFedDC(G, C, D, alpha, round_idx,
 
             opt_G.step()
 
-            #for p in D.parameters():
-                #p.requires_grad_(True)
-            #for p in C.parameters():
-                #p.requires_grad_(True)
+
 
             ############ Train Classifier (C)
-            '''opt_C.zero_grad()
-
-            loss_C_sup = torch.nn.functional.cross_entropy(C(img_l), label_l.long().squeeze())
-
-            logits_u_for_c = C(img_u)
-            probs_u = torch.nn.functional.softmax(logits_u_for_c, dim=1)
-
-            max_probs, pseudo_labels = torch.max(probs_u, dim=1)
-            threshold = min(0.95, 0.5 + round_idx * 0.02)
-            mask = max_probs.ge(threshold).float()
-            #loss_C_adv = torch.mean(torch.sum(probs_u * F.softplus(-d_scores_all), dim=1))
-
-            params_C = torch.cat([p.view(-1) for p in C.parameters()])
-            global_C = global_mdl_param[len(params_G):]
-            hist_C = hist_i[len(params_G):]
-            state_diff_C = state_update_diff[len(params_G):]
-
-            loss_cp_C = (alpha_C / 2) * torch.sum((params_C - (global_C - hist_C)) ** 2)
-            loss_cg_C = torch.sum(params_C * state_diff_C.detach()) 
-            loss_cg_C = torch.clamp(loss_cg_C, min=-10.0, max=10.0)
-
-            total_C_loss = loss_C_sup + (loss_cp_C) + loss_cg_C
-            count += 1
-
-            if round_idx > 10 and diversity_score > 0.05:
-                #d_scores_all = D(img_u)
-                d_scores_all = torch.stack(
-                    [D(img_u, torch.full_like(pseudo_labels, c)) for c in range(10)],
-                    dim=1)
-                d_scores_all = d_scores_all.squeeze(-1)
-                loss_adv_per_sample = torch.sum(probs_u * F.softplus(-d_scores_all), dim=1)
-                loss_C_adv = torch.mean(loss_adv_per_sample * mask)
-                total_C_loss += loss_C_adv
-                adv_loss_tot += loss_C_adv.item()
-                b = adv_loss_tot/count
-                pass
-            else:
-                b=0
-                pass
-
-            #opt_C.zero_grad()
-            total_C_loss.backward()
-            opt_C.step()'''
             opt_C.zero_grad()
 
             # Supervised Loss
             logits_l = C(img_l)
-            loss_C_sup = torch.nn.functional.cross_entropy(logits_l, label_l.long())
+            #loss_C_sup = torch.nn.functional.cross_entropy(logits_l, label_l.long())
+            loss_C_sup = F.cross_entropy(logits_l, label_l.long(), reduction='sum')
+            loss_C_sup = loss_C_sup / batch_sz
 
             # SSL Loss (Mean Teacher + Masking)
             with torch.no_grad():
                 logits_u_T = C_T(img_u)
                 probs_u_T = torch.nn.functional.softmax(logits_u_T, dim=1)
                 max_probs, _ = torch.max(probs_u_T, dim=1)
-                mask = max_probs.ge(0.95).float()
+                mask = max_probs.ge(0.70).float()
+
+            '''if count % 100 == 0:
+                conf = max_probs.mean().item()
+                used = mask.mean().item()
+                print(f"[Pseudo] avg_conf: {conf:.3f} | used_frac: {used:.3f}")'''
 
             logits_u_S = C(img_u)
             probs_u_S = torch.nn.functional.softmax(logits_u_S, dim=1)
@@ -403,14 +427,13 @@ def train_model_TripleFedDC(G, C, D, alpha, round_idx,
             loss_C_ssl = torch.mean(torch.sum((probs_u_S - probs_u_T)**2, dim=1) * mask)
 
             # Adversarial Loss 
-            y_pred_u = torch.argmax(probs_u_S, dim=1).detach() 
-            d_scores_u = D(img_u, y_pred_u)
+            #y_pred_u = torch.argmax(probs_u_S, dim=1).detach() 
+            #d_scores_u = D(img_u, y_pred_u)
             #loss_C_adv = torch.mean(torch.nn.functional.relu(1.0 - d_scores_u))
-            loss_C_adv = ramp_weight * 0.1 * torch.mean(torch.nn.functional.softplus(1.0 - d_scores_u))
-
-            # FedDC Penalty 
-            loss_cp_C = 0
-            loss_cg_C = 0
+            logits_u_adv, feat_u_adv = C(img_u, return_features=True)
+            y_pred_u_adv = torch.argmax(logits_u_adv, dim=1)
+            d_scores_u = D(img_u, y_pred_u_adv.detach(), feat_u_adv)
+            loss_C_adv = ramp_weight * torch.mean(torch.nn.functional.softplus(1.0 - d_scores_u))
             
             params_C = torch.cat([p.view(-1) for p in C.parameters()])
             global_C = global_mdl_param[len(params_G):]
@@ -418,10 +441,43 @@ def train_model_TripleFedDC(G, C, D, alpha, round_idx,
             state_diff_C = state_update_diff[len(params_G):]
             loss_cp_C = (alpha_C / 2) * torch.sum((params_C - (global_C - hist_C).detach()) ** 2)
             loss_cg_C = torch.sum(params_C * state_diff_C.detach())
+            loss_cg_C = loss_cg_C / sum(p.numel() for p in C.parameters())# normalise by oarameter count to prevent from dominating 
+            #loss_cg_C *= fed_weight
 
-            total_C_loss = loss_C_sup + loss_C_ssl + loss_C_adv + loss_cp_C + loss_cg_C
+            '''loss_cg_G = 0
+            loss_cg_C = 0'''
+
+            # Classifier losses - balance supervised and semi-supervised
+            loss_C_sup_weight = 1.0
+            loss_C_ssl_weight = ramp_weight * 1.0  # Match supervised loss scale
+            loss_C_adv_weight = ramp_weight * 0.01  # smaller than supervised
+
+            total_C_loss = (loss_C_sup_weight * loss_C_sup + 
+                            loss_C_ssl_weight * loss_C_ssl + 
+                            loss_C_adv_weight * loss_C_adv + 
+                            0.1 * loss_cp_C + 0.1 * loss_cg_C)
+
+            #total_C_loss = loss_C_sup + loss_C_ssl + loss_C_adv + loss_cp_C + loss_cg_C
+
+            '''if count % 50 == 0:
+                print("[C breakdown]",
+                    "sup:", loss_C_sup.item(),
+                    "ssl:", loss_C_ssl.item(),
+                    "adv:", loss_C_adv.item(),
+                    "cp:", loss_cp_C.item(),
+                    "cg:", loss_cg_C.item())'''
 
             total_C_loss.backward()
+            torch.nn.utils.clip_grad_norm_(C.parameters(), max_norm=10.0)
+
+            '''if count % 50 == 0:
+                print(f"[C] sup: {loss_C_sup.item():.4f} | "
+                    f"ssl: {loss_C_ssl.item():.4f} | "
+                    f"adv: {loss_C_adv.item():.4f} | "
+                    f"cp: {loss_cp_C.item():.4f} | "
+                    f"cg: {loss_cg_C.item():.4f} | "
+                    f"grad_norm: {grad_norm(C):.4e}")'''
+
             opt_C.step()
 
             # Update Teacher (EMA)
@@ -429,9 +485,14 @@ def train_model_TripleFedDC(G, C, D, alpha, round_idx,
 
             count += 1
             sup_loss_tot += loss_C_sup.item()
-            prox_loss_tot += loss_cp_C.item() if torch.is_tensor(loss_cp_C) else loss_cp_C
-            drift_loss_tot += loss_cg_C.item() if torch.is_tensor(loss_cg_C) else loss_cg_C
+            prox_loss_tot += loss_cp_C.item()
+            drift_loss_tot += loss_cg_C.item() 
             adv_loss_tot += loss_C_adv.item()
+
+        sched_G.step()
+        sched_C.step()
+        sched_D.step()
+
         save_gan_images(G, round_idx, device)
     return G, C, sup_loss_tot/count, adv_loss_tot/count, prox_loss_tot/count, drift_loss_tot/count
     
@@ -487,7 +548,7 @@ def get_acc_loss(data_x, data_y, model, dataset_name, w_decay = None):
     batch_size = min(6000, data_x.shape[0])
     batch_size = min(2000, data_x.shape[0])
     n_tst = data_x.shape[0]
-    tst_gen = data.DataLoader(Dataset(data_x, data_y), batch_size=batch_size, shuffle=False)
+    tst_gen = data.DataLoader(Dataset(dataset_name, data_x, data_y), batch_size=batch_size, shuffle=False)
     model.eval(); model = model.to(device)
     with torch.no_grad():
         tst_gen_iter = tst_gen.__iter__()
@@ -797,3 +858,11 @@ def sigmoid_rampup(current, rampup_length):
         current = np.clip(current, 0.0, rampup_length)
         phase = 1.0 - current / rampup_length
         return float(np.exp(-5.0 * phase * phase))
+
+#debug, rememebr to remove 
+def grad_norm(model):
+    total = 0.0
+    for p in model.parameters():
+        if p.grad is not None:
+            total += p.grad.data.norm(2).item() ** 2
+    return total ** 0.5

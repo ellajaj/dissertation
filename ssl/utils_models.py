@@ -8,11 +8,19 @@ from torch.nn import init
 from torch.nn import utils
 
 class Classifier(nn.Module):
-    def __init__(self, num_classes=10):
+    def __init__(self, dataset_name, num_classes=10):
         super(Classifier, self).__init__()
-        #resnet18 classifier 
+        self.name = dataset_name
+        if self.name=='CIFAR10':
+            self.channels=3
+        elif self.name=='fashion_mnist':
+            self.channels=1
+            '''self.n_cls = 10
+            self.fc1 = nn.Linear(1 * 28 * 28, 200)
+            self.fc2 = nn.Linear(200, 200)
+            self.fc3 = nn.Linear(200, self.n_cls)'''
         self.model = models.resnet18()
-        self.model.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
+        self.model.conv1 = nn.Conv2d(self.channels, 64, kernel_size=3, stride=1, padding=1, bias=False)
         self.model.maxpool = nn.Identity()
         replace_bn_with_gn(self.model, num_groups=8)  
         num_ftrs = self.model.fc.in_features # 512
@@ -20,61 +28,97 @@ class Classifier(nn.Module):
             nn.Dropout(0.5), 
             nn.Linear(num_ftrs, num_classes)
         )
-        '''resnet18 = models.resnet18()
-        resnet18.fc = nn.Linear(512, 10)
 
-        # Change BN to GN 
-        resnet18.bn1 = nn.GroupNorm(num_groups = 2, num_channels = 64)
+    def forward(self, x, return_features=False):
+        #if self.name == 'CIFAR10':
+        x = self.model.conv1(x)
+        x = self.model.bn1(x) # or gn1
+        x = self.model.relu(x)
+        x = self.model.layer1(x)
+        x = self.model.layer2(x)
+        x = self.model.layer3(x)
+        x = self.model.layer4(x)
+        x = self.model.avgpool(x)
+        feat = torch.flatten(x, 1)
+        logits = self.model.fc(feat)
+        if return_features:
+            return logits, feat
+        return logits
 
-        resnet18.layer1[0].bn1 = nn.GroupNorm(num_groups = 2, num_channels = 64)
-        resnet18.layer1[0].bn2 = nn.GroupNorm(num_groups = 2, num_channels = 64)
-        resnet18.layer1[1].bn1 = nn.GroupNorm(num_groups = 2, num_channels = 64)
-        resnet18.layer1[1].bn2 = nn.GroupNorm(num_groups = 2, num_channels = 64)
+        '''elif self.name == 'fashion_mnist':
+            x = x.reshape(x.size(0), -1)
+            x = F.relu(self.fc1(x))
+            feat = F.relu(self.fc2(x))   
+            logits = self.fc3(feat)      
+            if return_features:
+                return logits, feat
+            return logits'''
 
-        resnet18.layer2[0].bn1 = nn.GroupNorm(num_groups = 2, num_channels = 128)
-        resnet18.layer2[0].bn2 = nn.GroupNorm(num_groups = 2, num_channels = 128)
-        resnet18.layer2[0].downsample[1] = nn.GroupNorm(num_groups = 2, num_channels = 128)
-        resnet18.layer2[1].bn1 = nn.GroupNorm(num_groups = 2, num_channels = 128)
-        resnet18.layer2[1].bn2 = nn.GroupNorm(num_groups = 2, num_channels = 128)
 
-        resnet18.layer3[0].bn1 = nn.GroupNorm(num_groups = 2, num_channels = 256)
-        resnet18.layer3[0].bn2 = nn.GroupNorm(num_groups = 2, num_channels = 256)
-        resnet18.layer3[0].downsample[1] = nn.GroupNorm(num_groups = 2, num_channels = 256)
-        resnet18.layer3[1].bn1 = nn.GroupNorm(num_groups = 2, num_channels = 256)
-        resnet18.layer3[1].bn2 = nn.GroupNorm(num_groups = 2, num_channels = 256)
+class Generator(nn.Module):
+    def __init__(self, dataset_name, z_dim=100, num_classes=10):
+        super(Generator, self).__init__()
+        self.name = dataset_name
+        self.z_dim = z_dim
+        self.num_classes = num_classes
+        self.nlabels = num_classes
+        if self.name == 'CIFAR10':
+            self.channels = 3
+        elif self.name == 'fashion_mnist':
+            self.channels = 1
 
-        resnet18.layer4[0].bn1 = nn.GroupNorm(num_groups = 2, num_channels = 512)
-        resnet18.layer4[0].bn2 = nn.GroupNorm(num_groups = 2, num_channels = 512)
-        resnet18.layer4[0].downsample[1] = nn.GroupNorm(num_groups = 2, num_channels = 512)
-        resnet18.layer4[1].bn1 = nn.GroupNorm(num_groups = 2, num_channels = 512)
-        resnet18.layer4[1].bn2 = nn.GroupNorm(num_groups = 2, num_channels = 512)
-        assert len(dict(resnet18.named_parameters()).keys()) == len(resnet18.state_dict().keys()), 'More BN layers are there...'
+        self.main = nn.Sequential(
+            nn.ConvTranspose2d(z_dim + num_classes, 512, 4, 1, 0, bias=False),
+            nn.BatchNorm2d(512),
+            nn.ReLU(True),
+            nn.ConvTranspose2d(512, 256, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(256),
+            nn.ReLU(True),
+            nn.ConvTranspose2d(256, 128, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(128),
+            nn.ReLU(True),
+            nn.ConvTranspose2d(128, self.channels, 4, 2, 1, bias=False),
+            nn.Tanh()
+        )
+
+    def forward(self, z, y=None):
+        if z.dim() == 4:
+            z = z.view(z.size(0), -1)
+        y_onehot = F.one_hot(y, num_classes=10).float()
         
-        self.model = resnet18'''
+        # 3. Concatenate z and y_onehot to get [64, 110]
+        z_combined = torch.cat([z, y_onehot], dim=1)
+        
+        # 4. Reshape to 4D for the ConvTranspose2d layer: [64, 110, 1, 1]
+        z_combined = z_combined.view(z_combined.size(0), z_combined.size(1), 1, 1)
+        img = self.main(z_combined)
+        if self.name == 'fashion_mnist':
+            img = img[:, :, 2:30, 2:30]
+        return img
 
-    def forward(self, x):
-        x = self.model(x)
-        return x
-
-
-'''class Generator(nn.Module):
-    def __init__(self, z_dim=100, n_label=10, im_size=32, im_chan=3, embed_size=256,
+    
+    '''def __init__(self, dataset_name, z_dim=100, n_label=10, im_size=32, im_chan=3, embed_size=256,
         nfilter=64, nfilter_max=512, actvn=nn.ReLU(),):
         super().__init__()
         self.actvn = actvn
+        self.name = dataset_name
         s0 = self.s0 = 4
         nf = self.nf = nfilter
         nf_max = self.nf_max = nfilter_max
 
         self.z_dim = z_dim
         self.nlabels = n_label
-        self.im_size = im_size
-        self.im_chan = im_chan
+
+        if self.name == 'CIFAR10':
+            self.im_chan = 3
+            self.im_size = 32
+        elif self.name == 'fashion_mnist':
+            self.im_chan = 1
+            self.im_size = 28
 
         # Submodules
-        nlayers = int(np.log2(im_size / s0))
+        nlayers = int(np.log2(self.im_size / s0))
         self.nf0 = min(nf_max, nf * 2 ** nlayers)
-
         self.embedding = nn.Embedding(n_label, embed_size)
         self.fc = nn.Linear(z_dim + embed_size, self.nf0 * s0 * s0)
 
@@ -91,7 +135,7 @@ class Classifier(nn.Module):
 
         self.resnet = nn.Sequential(*blocks)
         #self.bn_final = nn.BatchNorm2d(nfilter)
-        self.conv_img = nn.Conv2d(nf, im_chan, 3, padding=1)
+        self.conv_img = nn.Conv2d(nf, self.im_chan, 3, padding=1)
 
     def forward(self, z, y=None):
         if y is not None:
@@ -119,9 +163,12 @@ class Classifier(nn.Module):
         out = self.conv_img(actvn(out))
         out = torch.tanh(out)
 
-        return out
-'''
-class Generator(nn.Module):
+        if out.size(-1) == 32:
+            out = out[:, :, 2:30, 2:30]
+
+        return out'''
+
+'''class Generator(nn.Module):
     """Generator generates 128x128. resnet generator"""
 
     def __init__(
@@ -181,7 +228,7 @@ class Generator(nn.Module):
         for i in [2, 3, 4]:
             h = getattr(self, "block{}".format(i))(h, y, **kwargs)
         h = self.activation(self.b7(h))
-        return torch.tanh(self.conv7(h))
+        return torch.tanh(self.conv7(h))'''
 
 '''class Discriminator(nn.Module):
     def __init__(self, n_label=10):
@@ -262,16 +309,16 @@ class Generator(nn.Module):
 class Discriminator(nn.Module):
     def __init__(
         self,
+        dataset_name,
         z_dim=256,
         n_label=10,
-        im_size=32,
-        im_chan=3,
         embed_size=256,
         nfilter=64,
         nfilter_max=512,
         actvn=nn.ReLU(),
     ):
         super().__init__()
+        self.name = dataset_name
         self.actvn = actvn
         self.embed_size = embed_size
         self.nlabels = n_label
@@ -279,11 +326,18 @@ class Discriminator(nn.Module):
         nf = self.nf = nfilter
         nf_max = self.nf_max = nfilter_max
 
-        self.im_size = im_size
-        self.im_chan = im_chan
+        if self.name =='fashion_mnist':
+            self.im_size = 28
+            self.im_chan = 1
+            self.feat_dim = 200
+        elif self.name =='CIFAR10':
+            self.im_size = 32
+            self.im_chan = 3
+            self.feat_dim = 512
+        self.feat_dim = 512
 
         # Submodules
-        nlayers = int(np.log2(im_size / s0))
+        nlayers = int(np.log2(self.im_size / s0))
         self.nf0 = min(nf_max, nf * 2 ** nlayers)
 
         blocks = [ResnetBlock(nf, nf, actvn=self.actvn)]
@@ -296,21 +350,38 @@ class Discriminator(nn.Module):
                 ResnetBlock(nf0, nf1, actvn=self.actvn),
             ]
 
-        self.conv_img = nn.Conv2d(im_chan, 1 * nf, 3, padding=1)
+        self.conv_img = nn.Conv2d(self.im_chan, 1 * nf, 3, padding=1)
         self.resnet = nn.Sequential(*blocks)
         #self.fc = nn.Linear(self.nf0 * s0 * s0, n_label)
-        self.fc = None
+        #self.fc = None
+        #self.d_internal_dim = self.nf0 * s0 * s0 
+        with torch.no_grad():
+            dummy = torch.zeros(1, self.im_chan, self.im_size, self.im_size)
+            h = self.conv_img(dummy)
+            h = self.resnet(h)
+            h = F.adaptive_avg_pool2d(h, 1)
+            self.d_internal_dim = h.view(1, -1).size(1)
+        # New Projection Head
+        self.fc = nn.Linear(self.d_internal_dim + self.feat_dim, n_label)
 
-    def forward(self, x, y=None):
+    def forward(self, x, y, feat):
         batch_size = x.size(0)
 
         out = self.conv_img(x)
         out = self.resnet(out)
         #out = out.view(batch_size, self.nf0 * self.s0 * self.s0)
+        #out = out.view(out.size(0), -1)
+        out = F.adaptive_avg_pool2d(out, 1)
         out = out.view(out.size(0), -1)
+        combined_feat = torch.cat([out, feat], dim=1)
+        logits = self.fc(self.actvn(combined_feat))
 
-        # 🔥 FORCE consistency
-        if (self.fc is None) or (self.fc.in_features != out.size(1)):
+        # 4. Return the scalar score for the specific class y
+        # This is the "conditional" part of the Discriminator
+        batch_range = torch.arange(logits.size(0), device=x.device)
+        return logits[batch_range, y]
+
+        '''if (self.fc is None) or (self.fc.in_features != out.size(1)):
             self.fc = nn.Linear(out.size(1), self.nlabels).to(out.device)
 
         out = self.fc(self.actvn(out))
@@ -323,7 +394,7 @@ class Discriminator(nn.Module):
             index = index.cuda()
             y = y.cuda()
         out = out[index, y]
-        return out
+        return out'''
 
 
 

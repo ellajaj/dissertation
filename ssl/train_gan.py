@@ -10,38 +10,71 @@ import copy
 
 
 def main():
+    torch.cuda.empty_cache()#remove
     # Hyperparameters 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("running on", device)
     n_clients = 100
-    com_amount = 600      # Total communication rounds
+    com_amount = 1000      # Total communication rounds
     local_epochs = 6      # Local epochs per round
     batch_size = 64
     lr = 0.0002           # Standard GAN learning rate
     alpha_coef = 0.0001      # FedDC penalty coefficient
-    #z_dim = 100           # Noise vector size
+    z_dim = 100           # Noise vector size
     num_classes = 10
-    act_prob = 0.15 #just whiile developing 
-
+    act_prob = 0.15
     
     print("Setting up Federated Dataset...")
     # This uses your Dirichlet rule for Non-IID data
     data_obj = DatasetObject(dataset='CIFAR10',  n_client=n_clients,  seed=42,  rule='Drichlet',  rule_arg=0.6 )
+    #data_obj = DatasetObject(dataset='fashion_mnist',  n_client=n_clients,  seed=42,  rule='Drichlet',  rule_arg=0.6 )
     #data_obj = DatasetObject(dataset='CIFAR10', n_client=n_clients, seed=23, rule='iid', unbalanced_sgm=0)
 
 
     print("*Initializing Global Models...")
-    global_G = Generator(n_label=num_classes).to(device)
-    global_C = Classifier(num_classes=num_classes).to(device)
-    
-    local_discriminators = [
-        Discriminator().to(device) for _ in range(n_clients)
-    ]
-
+    global_G = Generator(data_obj.dataset, z_dim).to(device)
+    global_C = Classifier(data_obj.dataset, num_classes=num_classes).to(device)
 
     def get_combined_model_func():
         # This is a helper for FedDC to know the structure of G and C combined
         return global_G, global_C
+
+
+    if data_obj.dataset=='CIFAR10':
+        print("Trying pretrained generator")
+
+        # 2. Load the Pre-trained Weights
+        print("Loading pre-trained generator...")
+        pretrained_dict = torch.load("../generator/generator.pth", map_location=device)
+
+        # Optional: If the file contains more than just the model (like optimizer states),
+        # you might need to access the sub-dictionary, e.g., pretrained_dict['model_state_dict']
+        if 'model_state_dict' in pretrained_dict:
+            pretrained_dict = pretrained_dict['model_state_dict']
+
+        init_model_G = global_G
+
+        # 3. Load carefully (strict=False ignores minor missing keys like running_mean in some cases)
+        try:
+            init_model_G.load_state_dict(pretrained_dict, strict=True)
+            print("SUCCESS: Pre-trained generator loaded perfectly.")
+        except RuntimeError as e:
+            print(f"WARNING: Strict loading failed. Attempting partial load. Error: {e}")
+            # Filter out unnecessary keys if needed
+            model_dict = init_model_G.state_dict()
+            # 1. filter out unnecessary keys
+            pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict and v.shape == model_dict[k].shape}
+            # 2. overwrite entries in the existing state dict
+            model_dict.update(pretrained_dict) 
+            # 3. load the new state dict
+            init_model_G.load_state_dict(model_dict)
+
+    elif data_obj.dataset=='fashion_mnist':
+        init_model_G = global_G
+
+    '''local_discriminators = [
+        Discriminator(data_obj.dataset).to(device) for _ in range(n_clients)
+    ]'''
 
     print(f"Starting Triple GAN FedDC with {n_clients} clients...")
     
@@ -50,7 +83,8 @@ def main():
         model_func_G = Generator, 
         model_func_C = Classifier,
         model_func_D = Discriminator,
-        init_model_G = global_G,  
+        #init_model_G = global_G,  
+        init_model_G = init_model_G,
         init_model_C = global_C,
         act_prob=act_prob,            
         n_minibatch=10,           # Approximate minibatches per epoch
@@ -72,6 +106,7 @@ def main():
 
     print("Training Complete. Evaluating Final Global Classifier...")
     evaluate_global_model(global_C, data_obj, device)
+
 
 '''def weights_init(m):
     classname = m.__class__.__name__
