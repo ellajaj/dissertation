@@ -17,6 +17,30 @@ class DatasetObject:
 
     def set_data(self):
         rng = np.random.default_rng(seed=42)
+        labeled_fraction = 0.10
+        unlabeled_to_labeled_ratio = 1.0
+
+        def _match_unlabeled_to_labeled(clnt_x_l, clnt_y_l, clnt_x_u, rng):
+            # Enforce per-client unlabeled count to match labeled count exactly.
+            matched_x_u = []
+            for clnt in range(len(clnt_x_l)):
+                x_l_i = np.asarray(clnt_x_l[clnt])
+                y_l_i = np.asarray(clnt_y_l[clnt])
+                x_u_i = np.asarray(clnt_x_u[clnt])
+
+                n_l = len(y_l_i)
+                if n_l == 0:
+                    matched_x_u.append(x_u_i[:0].astype(np.float32))
+                    continue
+
+                if len(x_u_i) >= n_l:
+                    sel = rng.choice(len(x_u_i), size=n_l, replace=False)
+                else:
+                    sel = rng.choice(len(x_u_i), size=n_l, replace=True)
+                matched_x_u.append(x_u_i[sel].astype(np.float32))
+
+            return np.array(matched_x_u, dtype=object)
+
         if not os.path.exists('%sData/%s' %(self.data_path, self.name)):
             if self.dataset == 'CIFAR10':
                 transform = transforms.Compose([transforms.ToTensor(),
@@ -33,7 +57,8 @@ class DatasetObject:
                 tst_load = torch.utils.data.DataLoader(tstset, batch_size=10000, shuffle=False, num_workers=1)
                 self.channels = 3; self.width = 32; self.height = 32; self.n_cls = 10;
             if self.dataset == 'fashion_mnist':
-                transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.2860,), (0.3530,))])
+                # Keep raw pixel scale here; normalization is applied later in Dataset/TripleGANDataset.
+                transform = transforms.Compose([transforms.ToTensor()])
                 trnset = torchvision.datasets.FashionMNIST(root='%sData/Raw' %self.data_path,
                                                            train=True, download=True, transform=transform)
                 tstset = torchvision.datasets.FashionMNIST(root='%sData/Raw' %self.data_path,
@@ -51,7 +76,6 @@ class DatasetObject:
             tst_x = tst_x.numpy(); tst_y = tst_y.numpy().reshape(-1,1)
 
             trn_x = (trn_x * 255).astype(np.uint8)
-            #tst_x = tst_x.numpy()
             tst_x = (tst_x * 255).astype(np.uint8)
 
             # Shuffle Data
@@ -60,14 +84,16 @@ class DatasetObject:
             trn_x = trn_x[rand_perm]
             trn_y = trn_y[rand_perm]
 
-            #90%unlabelled
+            # Use 10% labeled and match unlabeled pool size to labeled pool size.
             n_total = len(trn_y)
-            split = int(0.1 * n_total)
+            n_labeled = int(labeled_fraction * n_total)
+            n_unlabeled = int(unlabeled_to_labeled_ratio * n_labeled)
 
-            X_labeled = trn_x[:split]
-            y_labeled = trn_y[:split]
+            X_labeled = trn_x[:n_labeled]
+            y_labeled = trn_y[:n_labeled]
 
-            X_unlabeled = trn_x[split:] 
+            X_unlabeled = trn_x[n_labeled:n_labeled + n_unlabeled]
+            y_unlabeled = trn_y[n_labeled:n_labeled + n_unlabeled]
 
             #determine size for labelled clients 
             n_labeled_per_client = len(y_labeled) // self.n_client
@@ -113,7 +139,10 @@ class DatasetObject:
                         break
             ### '''
 
+            clnt_data_list_base = clnt_data_list.copy()
+
             if self.rule == 'Drichlet':
+                #split for labelled data
                 cls_priors   = np.random.dirichlet(alpha=[self.rule_arg]*self.n_cls,size=self.n_client)
                 prior_cumsum = np.cumsum(cls_priors, axis=1)
                 idx_list = [np.where(y_labeled==i)[0] for i in range(self.n_cls)]
@@ -144,9 +173,41 @@ class DatasetObject:
                         clnt_y[curr_clnt][clnt_data_list[curr_clnt]] = y_labeled[idx]
                         break
 
+                #split for unlabelled data
+                idx_list_u = [np.where(y_unlabeled==i)[0] for i in range(self.n_cls)]
+                cls_amount_u = [len(idx) for idx in idx_list_u]
+
+                clnt_x_u = [np.zeros((clnt_data_list_base[clnt__], self.channels, self.height, self.width)).astype(np.float32) for clnt__ in range(self.n_client)]
+                clnt_data_list_u = clnt_data_list_base.copy()
+
+                while(np.sum(clnt_data_list_u)!=0):
+                    curr_clnt = np.random.randint(self.n_client)
+                    # If current node is full resample a client
+                    print('Remaining Data: %d' %np.sum(clnt_data_list))
+                    if clnt_data_list_u[curr_clnt] <= 0:
+                        continue
+                    curr_prior = prior_cumsum[curr_clnt]
+                    while True:
+                        print("cls_amount:", cls_amount_u)
+
+                        cls_label = np.argmax(np.random.uniform() <= curr_prior)
+                        # Redraw class label if trn_y is out of that class
+                        if cls_amount_u[cls_label] <= 0:
+                            continue
+                        cls_amount_u[cls_label] -= 1
+                        idx = idx_list_u[cls_label][cls_amount_u[cls_label]]
+
+                        insert_idx = clnt_data_list_u[curr_clnt] - 1
+                        clnt_x_u[curr_clnt][insert_idx] = X_unlabeled[idx]
+
+                        clnt_data_list_u[curr_clnt] -= 1
+                        break
+
                 # Add explicit conversion to object dtype numpy array for inhomogeneous data
-                clnt_x = np.array(clnt_x, dtype=object)
-                clnt_y = np.array(clnt_y, dtype=object)
+                clnt_x_l = np.array(clnt_x, dtype=object)
+                clnt_y_l = np.array(clnt_y, dtype=object)
+                clnt_x_u = np.array(clnt_x_u, dtype=object)
+                clnt_x_u = _match_unlabeled_to_labeled(clnt_x_l, clnt_y_l, clnt_x_u, rng)
 
                 cls_means = np.zeros((self.n_client, self.n_cls))
                 for clnt in range(self.n_client):
@@ -172,41 +233,60 @@ class DatasetObject:
 
 
                 clnt_x = np.array(clnt_x, dtype=object)
-                #clnt_x = np.asarray(clnt_x)
-                #clnt_y = np.asarray(clnt_y)
                 clnt_y = np.array(clnt_y, dtype=object)
 
+                clnt_x_u = [np.zeros((clnt_data_list_base[clnt__], self.channels, self.height, self.width)).astype(np.float32) for clnt__ in range(self.n_client)]
+                clnt_data_list_u = clnt_data_list_base.copy()
+                u_start = 0
+                for clnt_idx_ in range(self.n_client):
+                    u_end = u_start + clnt_data_list_u[clnt_idx_]
+                    clnt_x_u[clnt_idx_] = X_unlabeled[u_start:u_end]
+                    u_start = u_end
+                clnt_x_u = np.array(clnt_x_u, dtype=object)
+                clnt_x_u = _match_unlabeled_to_labeled(clnt_x, clnt_y, clnt_x_u, rng)
 
-            self.clnt_x = clnt_x; self.clnt_y = clnt_y
-            self.unlabeled_x = X_unlabeled
-            self.tst_x  = tst_x;  self.tst_y  = tst_y
+
+            self.clnt_x_l = clnt_x
+            self.clnt_y_l = clnt_y
+            self.clnt_x_u = clnt_x_u
+            self.tst_x  = tst_x
+            self.tst_y  = tst_y
+            print(f"Split summary: labeled={len(y_labeled)}, unlabeled={len(y_unlabeled)}, ratio={len(y_unlabeled)/max(1, len(y_labeled)):.2f}")
 
 
             # Save data
             os.mkdir('%sData/%s' %(self.data_path, self.name))
 
-            np.save('%sData/%s/clnt_x.npy' %(self.data_path, self.name), clnt_x)
-            np.save('%sData/%s/clnt_y.npy' %(self.data_path, self.name), clnt_y)
-            np.save('%sData/%s/unlabeled_x.npy' %(self.data_path, self.name), X_unlabeled)
+            np.save('%sData/%s/clnt_x_l.npy' %(self.data_path, self.name), clnt_x_l)
+            np.save('%sData/%s/clnt_y_l.npy' %(self.data_path, self.name), clnt_y_l)
+            np.save('%sData/%s/clnt_x_u.npy' %(self.data_path, self.name), clnt_x_u)
             np.save('%sData/%s/tst_x.npy'  %(self.data_path, self.name),  tst_x)
             np.save('%sData/%s/tst_y.npy'  %(self.data_path, self.name),  tst_y)
             print("split complete")
 
         else:
             print("Data is already downloaded")
-            self.clnt_x = np.load('%sData/%s/clnt_x.npy' %(self.data_path, self.name),allow_pickle=True)
-            self.clnt_y = np.load('%sData/%s/clnt_y.npy' %(self.data_path, self.name),allow_pickle=True)
-            self.n_client = len(self.clnt_x)
-            self.unlabeled_x = np.load('%sData/%s/unlabeled_x.npy' %(self.data_path, self.name), allow_pickle=True)
+            self.clnt_x_l = np.load('%sData/%s/clnt_x_l.npy' %(self.data_path, self.name),allow_pickle=True)
+            self.clnt_y_l = np.load('%sData/%s/clnt_y_l.npy' %(self.data_path, self.name),allow_pickle=True)
+            self.clnt_x_u = np.load('%sData/%s/clnt_x_u.npy' %(self.data_path, self.name),allow_pickle=True)
+            self.n_client = len(self.clnt_x_u)
 
             self.tst_x  = np.load('%sData/%s/tst_x.npy'  %(self.data_path, self.name),allow_pickle=True)
             self.tst_y  = np.load('%sData/%s/tst_y.npy'  %(self.data_path, self.name),allow_pickle=True)
 
-            self.channels = 3; self.width = 32; self.height = 32; self.n_cls = 10;
+            if(self.dataset == "CIFAR10"):
+                self.channels = 3; self.width = 32; self.height = 32; self.n_cls = 10;
+                
+            elif(self.dataset == "fashion_mnist"):
+                self.channels = 1; self.width = 28; self.height = 28; self.n_cls = 10;
+
+            self.clnt_x_u = _match_unlabeled_to_labeled(self.clnt_x_l, self.clnt_y_l, self.clnt_x_u, rng)
 
         count = 0
         for clnt in range(self.n_client):
-            count += self.clnt_y[clnt].shape[0]
+            count += self.clnt_y_l[clnt].shape[0]
+        unl_count = sum(len(np.asarray(self.clnt_x_u[clnt])) for clnt in range(self.n_client))
+        print(f"Loaded client totals: labeled={count}, unlabeled={unl_count}, ratio={unl_count / max(1, count):.2f}")
     
 
 class Dataset(torch.utils.data.Dataset):
@@ -217,11 +297,31 @@ class Dataset(torch.utils.data.Dataset):
         self.y_data = data_y
         if self.name == "CIFAR10":
             self.train = train
-            self.transform = transforms.Compose([transforms.ToTensor()])
+            cifar_mean = (0.4914, 0.4822, 0.4465)
+            cifar_std = (0.2023, 0.1994, 0.2010)
+            if self.train:
+                self.transform = transforms.Compose([
+                    transforms.ToPILImage(),
+                    transforms.RandomCrop(32, padding=4),
+                    transforms.RandomHorizontalFlip(),
+                    transforms.ToTensor(),
+                    transforms.Normalize(cifar_mean, cifar_std),
+                ])
+            else:
+                self.transform = transforms.Compose([
+                    transforms.ToTensor(),
+                    transforms.Normalize(cifar_mean, cifar_std),
+                ])
 
             if not isinstance(data_y, bool):
                 self.y_data = data_y.astype('int64') # Should be int for labels
         elif self.name == "fashion_mnist":
+            self.transform = transforms.Compose([
+                transforms.ToPILImage(),
+                transforms.Resize((32, 32)),
+                transforms.ToTensor(),
+                transforms.Normalize((0.5,), (0.5,))
+            ])
             # Handle data_x
             if isinstance(data_x, np.ndarray) and data_x.dtype == object:
                 if data_x.ndim == 0:
@@ -248,20 +348,18 @@ class Dataset(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         if self.name == "CIFAR10":
             img = self.X_data[idx]
+            if isinstance(img, torch.Tensor):
+                img = img.cpu().numpy()
+            img = np.asarray(img)
 
-            if isinstance(img, np.ndarray):
-                img = img.astype(np.float32)
+            # Convert CHW -> HWC for torchvision image transforms.
+            if img.ndim == 3 and img.shape[0] == 3:
+                img = np.transpose(img, (1, 2, 0))
+            if img.dtype != np.uint8:
+                if np.max(img) <= 1.0:
+                    img = (img * 255.0).clip(0, 255)
+                img = img.astype(np.uint8)
 
-            if self.train:
-                img = np.flip(img, axis=1).copy() if (np.random.rand() > .5) else img # Horizontal flip
-                if (np.random.rand() > .5):
-                # Random cropping
-                    pad = 4
-                    extended_img = np.zeros((3,32 + pad *2, 32 + pad *2)).astype(np.float32)
-                    extended_img[:,pad:-pad,pad:-pad] = img
-                    dim_1, dim_2 = np.random.randint(pad * 2 + 1, size=2)
-                    img = extended_img[:,dim_1:dim_1+32,dim_2:dim_2+32]
-            img = np.moveaxis(img, 0, -1)
             img = self.transform(img)
             if isinstance(self.y_data, bool):
                 return img
@@ -269,7 +367,17 @@ class Dataset(torch.utils.data.Dataset):
                 y = self.y_data[idx]
                 return img, y
         elif self.name == "fashion_mnist":
-            X = self.X_data[idx, :]
+            X = self.X_data[idx]
+            if isinstance(X, torch.Tensor):
+                X = X.cpu().numpy()
+            X = np.asarray(X)
+            if X.ndim == 3 and X.shape[0] == 1:
+                X = np.squeeze(X, axis=0)
+            if X.dtype != np.uint8:
+                if np.max(X) <= 1.0:
+                    X = (X * 255.0).clip(0, 255)
+                X = X.astype(np.uint8)
+            X = self.transform(X)
             if isinstance(self.y_data, bool):
                 return X
             else:
@@ -285,24 +393,41 @@ class TripleGANDataset(torch.utils.data.Dataset):
         self.x_l, self.y_l = x_l, y_l
         self.x_u = x_u
         self.l_perm = np.random.permutation(len(self.y_l))
+        self.u_perm = np.random.permutation(len(self.x_u))
         if self.name == "fashion_mnist":
-            self.transform = transforms.Compose([
+            self.transform_l = transforms.Compose([
+                transforms.ToPILImage(),
+                transforms.Resize((32, 32)),
                 transforms.ToTensor(),
                 transforms.Normalize((0.5, ), (0.5, ))
             ])
+            self.transform_u = self.transform_l
         elif self.name == "CIFAR10":
+            cifar_mean = (0.4914, 0.4822, 0.4465)
+            cifar_std = (0.2023, 0.1994, 0.2010)
+            weak_aug = [
+                transforms.RandomCrop(32, padding=4),
+                transforms.RandomHorizontalFlip(),
+            ]
+            self.transform_l = transforms.Compose(
+                [transforms.ToPILImage()] + weak_aug + [transforms.ToTensor(), transforms.Normalize(cifar_mean, cifar_std)]
+            )
+            self.transform_u = transforms.Compose(
+                [transforms.ToPILImage()] + weak_aug + [transforms.ToTensor(), transforms.Normalize(cifar_mean, cifar_std)]
+            )
+
             self.transform = transforms.Compose([
                 transforms.ToTensor(),
-                #transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-                transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+                transforms.Normalize(cifar_mean, cifar_std)
             ])
 
     def __len__(self):
-        return len(self.x_u) # Unlabeled set is usually larger
+        return min(len(self.x_u), len(self.y_l))
 
     def __getitem__(self, idx):
         # Unlabeled sample
-        img_u = self.x_u[idx]
+        u_idx = self.u_perm[idx % len(self.x_u)]
+        img_u = self.x_u[u_idx]
         
         # Labeled sample (cycling through the smaller labeled set)
         #l_idx = idx % len(self.y_l)
@@ -311,7 +436,7 @@ class TripleGANDataset(torch.utils.data.Dataset):
         label_l = self.y_l[l_idx]
 
         img_l = self._fix_shape(self.x_l[l_idx])
-        img_u = self._fix_shape(self.x_u[idx])
+        img_u = self._fix_shape(self.x_u[u_idx])
 
         '''if img_l.shape[0] == 3: # If Channels first (C, H, W)
              img_l = np.transpose(img_l, (1, 2, 0))
@@ -319,8 +444,8 @@ class TripleGANDataset(torch.utils.data.Dataset):
              img_u = np.transpose(img_u, (1, 2, 0))'''
 
         # Apply transforms
-        img_l = self.transform(img_l)
-        img_u = self.transform(img_u)
+        img_l = self.transform_l(img_l)
+        img_u = self.transform_u(img_u)
 
         label_l = np.array(label_l).astype(np.int64)
 
@@ -349,7 +474,12 @@ class TripleGANDataset(torch.utils.data.Dataset):
         # If (3, 32, 32) -> transpose to (32, 32, 3) for ToTensor
         elif img.ndim == 3 and img.shape[0] == 3:
             img = np.transpose(img, (1, 2, 0))
-        return img.astype(np.float32)
+        # Keep uint8 so ToTensor scales to [0,1] correctly before normalization.
+        if img.dtype != np.uint8:
+            if np.max(img) <= 1.0:
+                img = (img * 255.0).clip(0, 255)
+            img = img.astype(np.uint8)
+        return img
         '''img = np.asarray(img)
 
         # Case 1: (C, H, W) → (H, W, C)
@@ -368,4 +498,3 @@ class TripleGANDataset(torch.utils.data.Dataset):
             raise ValueError(f"Unexpected image shape: {img.shape}")
 
         return img.astype(np.float32)'''
-

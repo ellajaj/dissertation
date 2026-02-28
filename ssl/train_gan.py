@@ -14,15 +14,15 @@ def main():
     # Hyperparameters 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("running on", device)
-    n_clients = 100
+    n_clients = 16
     com_amount = 1000      # Total communication rounds
-    local_epochs = 6      # Local epochs per round
+    local_epochs = 6      # Fewer local epochs reduces client drift in non-IID FL
     batch_size = 64
-    lr = 0.0002           # Standard GAN learning rate
-    alpha_coef = 0.0001      # FedDC penalty coefficient
+    lr = 0.0002          # Lower LR for more stable joint GAN+classifier dynamics
+    alpha_coef = 0.1      # FedDC penalty coefficient
     z_dim = 100           # Noise vector size
     num_classes = 10
-    act_prob = 0.15
+    act_prob = 0.25
     
     print("Setting up Federated Dataset...")
     # This uses your Dirichlet rule for Non-IID data
@@ -70,7 +70,34 @@ def main():
             init_model_G.load_state_dict(model_dict)
 
     elif data_obj.dataset=='fashion_mnist':
+        #init_model_G = global_G
+        print("Trying pretrained generator")
+
+        # 2. Load the Pre-trained Weights
+        print("Loading pre-trained generator...")
+        pretrained_dict = torch.load("../generator/fmnist_generator.pth", map_location=device)
+
+        # Optional: If the file contains more than just the model (like optimizer states),
+        # you might need to access the sub-dictionary, e.g., pretrained_dict['model_state_dict']
+        if 'model_state_dict' in pretrained_dict:
+            pretrained_dict = pretrained_dict['model_state_dict']
+
         init_model_G = global_G
+
+        # 3. Load carefully (strict=False ignores minor missing keys like running_mean in some cases)
+        try:
+            init_model_G.load_state_dict(pretrained_dict, strict=True)
+            print("SUCCESS: Pre-trained generator loaded perfectly.")
+        except RuntimeError as e:
+            print(f"WARNING: Strict loading failed. Attempting partial load. Error: {e}")
+            # Filter out unnecessary keys if needed
+            model_dict = init_model_G.state_dict()
+            # 1. filter out unnecessary keys
+            pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict and v.shape == model_dict[k].shape}
+            # 2. overwrite entries in the existing state dict
+            model_dict.update(pretrained_dict) 
+            # 3. load the new state dict
+            init_model_G.load_state_dict(model_dict)
 
     '''local_discriminators = [
         Discriminator(data_obj.dataset).to(device) for _ in range(n_clients)
@@ -101,11 +128,14 @@ def main():
         sch_gamma=0.5,
         save_period=10,
         data_path='Folder/',
-        rand_seed=42
+        rand_seed=42,
+        blend_local_global=True,
+        blend_momentum_G=0.95,
+        blend_momentum_C=0.90
     )
 
     print("Training Complete. Evaluating Final Global Classifier...")
-    evaluate_global_model(global_C, data_obj, device)
+    evaluate_global_model(cur_cld_C, data_obj, device)
 
 
 '''def weights_init(m):

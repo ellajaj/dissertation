@@ -7,7 +7,7 @@ import math
 from torch.nn import init
 from torch.nn import utils
 
-class Classifier(nn.Module):
+'''class Classifier(nn.Module):
     def __init__(self, dataset_name, num_classes=10):
         super(Classifier, self).__init__()
         self.name = dataset_name
@@ -15,17 +15,17 @@ class Classifier(nn.Module):
             self.channels=3
         elif self.name=='fashion_mnist':
             self.channels=1
-            '''self.n_cls = 10
+            ''' '''self.n_cls = 10
             self.fc1 = nn.Linear(1 * 28 * 28, 200)
             self.fc2 = nn.Linear(200, 200)
-            self.fc3 = nn.Linear(200, self.n_cls)'''
+            self.fc3 = nn.Linear(200, self.n_cls)''' '''
         self.model = models.resnet18()
         self.model.conv1 = nn.Conv2d(self.channels, 64, kernel_size=3, stride=1, padding=1, bias=False)
         self.model.maxpool = nn.Identity()
         replace_bn_with_gn(self.model, num_groups=8)  
         num_ftrs = self.model.fc.in_features # 512
         self.model.fc = nn.Sequential(
-            nn.Dropout(0.5), 
+            #nn.Dropout(0.1), 
             nn.Linear(num_ftrs, num_classes)
         )
 
@@ -45,7 +45,7 @@ class Classifier(nn.Module):
             return logits, feat
         return logits
 
-        '''elif self.name == 'fashion_mnist':
+        elif self.name == 'fashion_mnist':
             x = x.reshape(x.size(0), -1)
             x = F.relu(self.fc1(x))
             feat = F.relu(self.fc2(x))   
@@ -53,6 +53,66 @@ class Classifier(nn.Module):
             if return_features:
                 return logits, feat
             return logits'''
+
+class Classifier(nn.Module):
+    def __init__(self, dataset_name, num_classes=10):
+        super(Classifier, self).__init__()
+        self.name = dataset_name
+        if self.name == 'fashion_mnist':
+            in_channels = 1
+        else:
+            in_channels = 3
+
+        resnet18 = models.resnet18()
+        resnet18.conv1 = nn.Conv2d(
+            in_channels, 64, kernel_size=3, stride=1, padding=1, bias=False
+        )
+        resnet18.maxpool = nn.Identity()
+        resnet18.fc = nn.Linear(512, num_classes)
+
+        # Change BN to GN 
+        resnet18.bn1 = nn.GroupNorm(num_groups = 2, num_channels = 64)
+
+        resnet18.layer1[0].bn1 = nn.GroupNorm(num_groups = 2, num_channels = 64)
+        resnet18.layer1[0].bn2 = nn.GroupNorm(num_groups = 2, num_channels = 64)
+        resnet18.layer1[1].bn1 = nn.GroupNorm(num_groups = 2, num_channels = 64)
+        resnet18.layer1[1].bn2 = nn.GroupNorm(num_groups = 2, num_channels = 64)
+
+        resnet18.layer2[0].bn1 = nn.GroupNorm(num_groups = 2, num_channels = 128)
+        resnet18.layer2[0].bn2 = nn.GroupNorm(num_groups = 2, num_channels = 128)
+        resnet18.layer2[0].downsample[1] = nn.GroupNorm(num_groups = 2, num_channels = 128)
+        resnet18.layer2[1].bn1 = nn.GroupNorm(num_groups = 2, num_channels = 128)
+        resnet18.layer2[1].bn2 = nn.GroupNorm(num_groups = 2, num_channels = 128)
+
+        resnet18.layer3[0].bn1 = nn.GroupNorm(num_groups = 2, num_channels = 256)
+        resnet18.layer3[0].bn2 = nn.GroupNorm(num_groups = 2, num_channels = 256)
+        resnet18.layer3[0].downsample[1] = nn.GroupNorm(num_groups = 2, num_channels = 256)
+        resnet18.layer3[1].bn1 = nn.GroupNorm(num_groups = 2, num_channels = 256)
+        resnet18.layer3[1].bn2 = nn.GroupNorm(num_groups = 2, num_channels = 256)
+
+        resnet18.layer4[0].bn1 = nn.GroupNorm(num_groups = 2, num_channels = 512)
+        resnet18.layer4[0].bn2 = nn.GroupNorm(num_groups = 2, num_channels = 512)
+        resnet18.layer4[0].downsample[1] = nn.GroupNorm(num_groups = 2, num_channels = 512)
+        resnet18.layer4[1].bn1 = nn.GroupNorm(num_groups = 2, num_channels = 512)
+        resnet18.layer4[1].bn2 = nn.GroupNorm(num_groups = 2, num_channels = 512)
+        assert len(dict(resnet18.named_parameters()).keys()) == len(resnet18.state_dict().keys()), 'More BN layers are there...'
+        
+        self.model = resnet18
+
+    def forward(self, x, return_features=False):
+        x = self.model.conv1(x)
+        x = self.model.bn1(x) # or gn1
+        x = self.model.relu(x)
+        x = self.model.layer1(x)
+        x = self.model.layer2(x)
+        x = self.model.layer3(x)
+        x = self.model.layer4(x)
+        x = self.model.avgpool(x)
+        feat = torch.flatten(x, 1)
+        logits = self.model.fc(feat)
+        if return_features:
+            return logits, feat
+        return logits
 
 
 class Generator(nn.Module):
@@ -67,6 +127,7 @@ class Generator(nn.Module):
         elif self.name == 'fashion_mnist':
             self.channels = 1
 
+        #if self.name == 'CIFAR10':
         self.main = nn.Sequential(
             nn.ConvTranspose2d(z_dim + num_classes, 512, 4, 1, 0, bias=False),
             nn.BatchNorm2d(512),
@@ -84,17 +145,17 @@ class Generator(nn.Module):
     def forward(self, z, y=None):
         if z.dim() == 4:
             z = z.view(z.size(0), -1)
-        y_onehot = F.one_hot(y, num_classes=10).float()
-        
-        # 3. Concatenate z and y_onehot to get [64, 110]
+        if y is None:
+            y = torch.randint(0, self.num_classes, (z.size(0),), device=z.device)
+        y_onehot = F.one_hot(y, num_classes=self.num_classes).float()
         z_combined = torch.cat([z, y_onehot], dim=1)
-        
-        # 4. Reshape to 4D for the ConvTranspose2d layer: [64, 110, 1, 1]
+
+        #if self.name == 'fashion_mnist':
+            #h = self.fc_fm(z_combined).view(z_combined.size(0), 256, 7, 7)
+            #return self.main_fm(h)
+
         z_combined = z_combined.view(z_combined.size(0), z_combined.size(1), 1, 1)
-        img = self.main(z_combined)
-        if self.name == 'fashion_mnist':
-            img = img[:, :, 2:30, 2:30]
-        return img
+        return self.main(z_combined)
 
     
     '''def __init__(self, dataset_name, z_dim=100, n_label=10, im_size=32, im_chan=3, embed_size=256,
