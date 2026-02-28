@@ -2,11 +2,8 @@ from utils_libs import *
 from utils_dataset import *
 from utils_models import *
 from utils_general import *
-from tensorboardX import SummaryWriter
+
 ### Methods
-
-
-
 def train_FedDC(data_obj, act_prob,n_minibatch,
                   learning_rate, batch_size, epoch, com_amount, print_per,
                   weight_decay,  model_func, init_model, alpha_coef,
@@ -217,25 +214,25 @@ def train_FedDC(data_obj, act_prob,n_minibatch,
 
             writer.add_scalars('Loss/same-train',
                    {
-                       'Sel clients':trn_sel_clt_perf[i][0],
-                       'All clients':trn_all_clt_perf[i][0],
-                       'Current cloud':trn_cur_cld_perf[i][0]
+                       'Sel clients 4':trn_sel_clt_perf[i][0],
+                       'All client 4':trn_all_clt_perf[i][0],
+                       'Current cloud 4':trn_cur_cld_perf[i][0]
                    }, i
                   )
 
             writer.add_scalars('Accuracy/same-train',
                    {
-                       'Sel clients':trn_sel_clt_perf[i][1],
-                       'All clients':trn_all_clt_perf[i][1],
-                       'Current cloud':trn_cur_cld_perf[i][1]
+                       'Sel clients 4':trn_sel_clt_perf[i][1],
+                       'All clients 4':trn_all_clt_perf[i][1],
+                       'Current cloud 4':trn_cur_cld_perf[i][1]
                    }, i
                   )
 
             writer.add_scalars('Loss/same-test?',
                    {
-                       'Sel clients':get_acc_loss(cent_x, cent_y, avg_model_sel, data_obj.dataset, weight_decay)[0],
-                       'All clients':get_acc_loss(cent_x, cent_y, all_model, data_obj.dataset, weight_decay)[0],
-                       'Current cloud':get_acc_loss(cent_x, cent_y, cur_cld_model, data_obj.dataset, weight_decay)[0]
+                       'Sel clients 4':get_acc_loss(cent_x, cent_y, avg_model_sel, data_obj.dataset, weight_decay)[0],
+                       'All clients 4':get_acc_loss(cent_x, cent_y, all_model, data_obj.dataset, weight_decay)[0],
+                       'Current cloud 4':get_acc_loss(cent_x, cent_y, cur_cld_model, data_obj.dataset, weight_decay)[0]
                    }, i
                   )
 
@@ -264,17 +261,17 @@ def train_FedDC(data_obj, act_prob,n_minibatch,
 
             writer.add_scalars('Loss/same-test',
                    {
-                       'Sel clients':tst_sel_clt_perf[i][0],
-                       'All clients':tst_all_clt_perf[i][0],
-                       'Current cloud':tst_cur_cld_perf[i][0]
+                       'Sel clients 4':tst_sel_clt_perf[i][0],
+                       'All clients 4':tst_all_clt_perf[i][0],
+                       'Current cloud 4':tst_cur_cld_perf[i][0]
                    }, i
                   )
 
             writer.add_scalars('Accuracy/same-test',
                    {
-                       'Sel clients':tst_sel_clt_perf[i][1],
-                       'All clients':tst_all_clt_perf[i][1],
-                       'Current cloud':tst_cur_cld_perf[i][1]
+                       'Sel clients 4':tst_sel_clt_perf[i][1],
+                       'All clients 4':tst_all_clt_perf[i][1],
+                       'Current cloud 4':tst_cur_cld_perf[i][1]
                    }, i
                   )
 

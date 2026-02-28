@@ -1,3 +1,5 @@
+'''code adapted from https://github.com/gaoliang13/FedDC'''
+
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
 
@@ -5,7 +7,6 @@ import torch
 print("Torch sees", torch.cuda.device_count(), "GPUs")
 
 from utils_general import *
-from utils_methods import *
 from utils_methods_FedDC import train_FedDC
 
 def main():
@@ -15,7 +16,7 @@ def main():
     # Dataset initialization
     data_path = 'Folder/' # The folder to save Data & Model
     
-    n_client = 100
+    n_client = 16
     # Generate IID or Dirichlet distribution
     # IID
     #data_obj = DatasetObject(dataset='CIFAR10', n_client=n_client, seed=23, rule='iid', unbalanced_sgm=0, data_path=data_path)
@@ -30,24 +31,22 @@ def main():
     #data_obj.limit_dataset(max_samples=6000, min_per_class=600, verbose=False)
 
     model_name = 'Resnet18'
-    print("running on same resent18")
-    #model_name = 'cifar10_LeNet' # Model type
+    #model_name = 'cifar10_LeNet' 
     #model_name = 'Resnet50'
 
     ###
     # Common hyperparameters
 
-    com_amount = 1000
+    com_amount = 500
     save_period = 100
     weight_decay = 1e-3
     batch_size = 50
-    #act_prob = 1
-    act_prob = 0.15
+    act_prob = 0.25
     suffix = model_name
     lr_decay_per_round = 0.998
 
     # Model function
-    model_func = lambda : client_model(model_name)
+    model_func = lambda : client_model(model_name, data_obj.name)
     init_model = model_func()
 
     # Initalise the model for all methods with a random seed or load it from a saved initial model
