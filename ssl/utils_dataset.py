@@ -114,30 +114,19 @@ class DatasetObject:
                     if clnt_data_list[i] > abs(diff):
                         clnt_data_list[i] -= diff
                         break
-
-            print("1")
+            print(
+                f"[Split Setup] total_train={n_total}, labeled={len(y_labeled)}, "
+                f"unlabeled_pool={len(y_unlabeled)}, clients={self.n_client}"
+            )
+            print(
+                f"[Split Setup] target_labeled_per_client(min/mean/max)="
+                f"{clnt_data_list.min()}/{clnt_data_list.mean():.2f}/{clnt_data_list.max()}"
+            )
 
             self.trn_x = trn_x
             self.trn_y = trn_y
             self.tst_x = tst_x
             self.tst_y = tst_y
-
-            ###
-            '''n_data_per_clnt = int((len(trn_y)) / self.n_client)
-            # Draw from lognormal distribution
-            clnt_data_list = (np.random.lognormal(mean=np.log(n_data_per_clnt), sigma=self.unbalanced_sgm, size=self.n_client)).astype(int)
-            clnt_data_list = (clnt_data_list/np.sum(clnt_data_list)*len(trn_y)).astype(int)
-            diff = np.sum(clnt_data_list) - len(trn_y)
-
-            print("2")
-
-            # Add/Subtract the excess number starting from first client
-            if diff!= 0:
-                for clnt_i in range(self.n_client):
-                    if clnt_data_list[clnt_i] > diff:
-                        clnt_data_list[clnt_i] -= diff
-                        break
-            ### '''
 
             clnt_data_list_base = clnt_data_list.copy()
 
@@ -218,9 +207,6 @@ class DatasetObject:
                 print('--- Min deviation from prior: %.4f' %np.min(prior_real_diff))
 
 
-                #self.clnt_x = clnt_x; self.clnt_y = clnt_y
-                #self.tst_x  = tst_x;  self.tst_y  = tst_y
-
             elif self.rule == 'iid':
 
                 clnt_x = [ np.zeros((clnt_data_list[clnt__], self.channels, self.height, self.width)).astype(np.float32) for clnt__ in range(self.n_client) ]
@@ -252,6 +238,27 @@ class DatasetObject:
             self.tst_x  = tst_x
             self.tst_y  = tst_y
             print(f"Split summary: labeled={len(y_labeled)}, unlabeled={len(y_unlabeled)}, ratio={len(y_unlabeled)/max(1, len(y_labeled)):.2f}")
+
+            labeled_counts = np.array([len(np.asarray(self.clnt_y_l[c])) for c in range(self.n_client)], dtype=int)
+            unlabeled_counts = np.array([len(np.asarray(self.clnt_x_u[c])) for c in range(self.n_client)], dtype=int)
+            print(
+                f"[Split Check] labeled_total={labeled_counts.sum()} (expected={len(y_labeled)}), "
+                f"unlabeled_total={unlabeled_counts.sum()} (after matching to labeled)"
+            )
+            print(
+                f"[Split Check] per-client labeled min/mean/max="
+                f"{labeled_counts.min()}/{labeled_counts.mean():.2f}/{labeled_counts.max()} | "
+                f"unlabeled min/mean/max={unlabeled_counts.min()}/{unlabeled_counts.mean():.2f}/{unlabeled_counts.max()}"
+            )
+            for clnt in range(self.n_client):
+                l_cnt = labeled_counts[clnt]
+                u_cnt = unlabeled_counts[clnt]
+                lbl = np.asarray(self.clnt_y_l[clnt]).reshape(-1)
+                cls_hist = np.bincount(lbl, minlength=self.n_cls).tolist() if l_cnt > 0 else [0] * self.n_cls
+                print(
+                    f"[Split Check][Client {clnt:02d}] labeled={l_cnt}, unlabeled={u_cnt}, "
+                    f"match_ok={u_cnt == l_cnt}, class_hist={cls_hist}"
+                )
 
 
             # Save data
@@ -287,6 +294,14 @@ class DatasetObject:
             count += self.clnt_y_l[clnt].shape[0]
         unl_count = sum(len(np.asarray(self.clnt_x_u[clnt])) for clnt in range(self.n_client))
         print(f"Loaded client totals: labeled={count}, unlabeled={unl_count}, ratio={unl_count / max(1, count):.2f}")
+        loaded_l_counts = np.array([len(np.asarray(self.clnt_y_l[c])) for c in range(self.n_client)], dtype=int)
+        loaded_u_counts = np.array([len(np.asarray(self.clnt_x_u[c])) for c in range(self.n_client)], dtype=int)
+        print(
+            f"[Loaded Split Check] clients={self.n_client}, "
+            f"labeled(min/mean/max)={loaded_l_counts.min()}/{loaded_l_counts.mean():.2f}/{loaded_l_counts.max()}, "
+            f"unlabeled(min/mean/max)={loaded_u_counts.min()}/{loaded_u_counts.mean():.2f}/{loaded_u_counts.max()}"
+        )
+        print(f"[Loaded Split Check] all_clients_unlabeled_match_labeled={np.all(loaded_l_counts == loaded_u_counts)}")
     
 
 class Dataset(torch.utils.data.Dataset):
@@ -438,11 +453,6 @@ class TripleGANDataset(torch.utils.data.Dataset):
         img_l = self._fix_shape(self.x_l[l_idx])
         img_u = self._fix_shape(self.x_u[u_idx])
 
-        '''if img_l.shape[0] == 3: # If Channels first (C, H, W)
-             img_l = np.transpose(img_l, (1, 2, 0))
-        if img_u.shape[0] == 3:
-             img_u = np.transpose(img_u, (1, 2, 0))'''
-
         # Apply transforms
         img_l = self.transform_l(img_l)
         img_u = self.transform_u(img_u)
@@ -451,20 +461,6 @@ class TripleGANDataset(torch.utils.data.Dataset):
 
         
         return img_l, torch.from_numpy(label_l), img_u
-
-        '''img_l = self.x_l[l_idx]
-        label_l = self.y_l[l_idx]
-
-        img_l = self.transform(img_l)
-        img_u = self.transform(img_u)
-
-        img_l = np.array(img_l).astype(np.float32)
-        img_u = np.array(img_u).astype(np.float32)
- 
-
-        label_l = np.array(label_l).astype(np.int64)
-        
-        return img_l, torch.from_numpy(label_l), img_u'''
 
     def _fix_shape(self, img):
         img = np.asarray(img)
@@ -480,21 +476,4 @@ class TripleGANDataset(torch.utils.data.Dataset):
                 img = (img * 255.0).clip(0, 255)
             img = img.astype(np.uint8)
         return img
-        '''img = np.asarray(img)
 
-        # Case 1: (C, H, W) → (H, W, C)
-        if img.ndim == 3 and img.shape[0] == 3:
-            img = np.transpose(img, (1, 2, 0))
-
-        # Case 2: (H, W) → (H, W, 3)
-        elif img.ndim == 2:
-            img = np.stack([img] * 3, axis=-1)
-
-        # Case 3: already (H, W, 3)
-        elif img.ndim == 3 and img.shape[-1] == 3:
-            pass
-
-        else:
-            raise ValueError(f"Unexpected image shape: {img.shape}")
-
-        return img.astype(np.float32)'''

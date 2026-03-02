@@ -1,17 +1,8 @@
 from utils_libs import *
 from utils_dataset import *
 from utils_models import *
-from tensorboardX import SummaryWriter
-import matplotlib.pyplot as plt
-import torchvision.utils as vutils
-#from torchmetrics.image.fid import FrechetInceptionDistance
-from scipy.linalg import fractional_matrix_power
-import gc
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
-def _clip_np_by_value(x, clip_value):
-    return np.clip(x, -clip_value, clip_value)
 
 def train_FedDC(data_obj, model_func_G, model_func_C, model_func_D,
                 init_model_G, init_model_C, 
@@ -32,6 +23,8 @@ def train_FedDC(data_obj, model_func_G, model_func_C, model_func_D,
 
     weight_list = np.asarray([len(clnt_y_l[i]) for i in range(n_clnt)])
     weight_list = weight_list / np.sum(weight_list) * n_clnt
+
+    tst_sel_clt_perf = np.zeros((com_amount, 2))
 
     model_dir = ('%sModel/%s/%s' %(data_path, data_obj.name, suffix))
     if not os.path.exists(model_dir):
@@ -60,18 +53,6 @@ def train_FedDC(data_obj, model_func_G, model_func_C, model_func_D,
     cld_mdl_param = init_combined.copy()
 
     n_save_instances = int(com_amount / save_period)
-    avg_ins_mdls = list(range(n_save_instances))
-    avg_all_mdls = list(range(n_save_instances))
-    avg_cld_mdls = list(range(n_save_instances))
-
-    trn_sel_clt_perf = np.zeros((com_amount, 2))
-    tst_sel_clt_perf = np.zeros((com_amount, 2))
-
-    trn_all_clt_perf = np.zeros((com_amount, 2))
-    tst_all_clt_perf = np.zeros((com_amount, 2))
-
-    trn_cur_cld_perf = np.zeros((com_amount, 2))
-    tst_cur_cld_perf = np.zeros((com_amount, 2))
 
     writer = SummaryWriter('%sRuns/%s/%s' %(data_path, data_obj.name, suffix))
 
@@ -85,14 +66,8 @@ def train_FedDC(data_obj, model_func_G, model_func_C, model_func_D,
     
     mu_real, sigma_real = precalculate_real_stats(data_obj.tst_x, inception_model, device)'''
 
-    '''# store optimizer states for G, C, D
-    client_opt_states = {
-        client_id: {'G': None, 'C': None, 'D': None} 
-        for client_id in range(n_clnt)
-    }'''
 
     for i in range(com_amount):
-        #print("round ",i)
         # Client selection
         inc_seed = 0
         while True:
@@ -106,7 +81,6 @@ def train_FedDC(data_obj, model_func_G, model_func_C, model_func_D,
         delta_g_sum = np.zeros(n_par)
 
         for clnt in selected_clnts:
-            #print('---- Round %d, Training client %d' % (i, clnt))
             
             # Data Split (Semi-Supervised)
             xl = clnt_x_l[clnt]
@@ -147,17 +121,11 @@ def train_FedDC(data_obj, model_func_G, model_func_C, model_func_D,
             # Update FedDC tracking    
             curr_par = get_combined_params(local_G, local_C, n_par)
             delta_p = curr_par - cld_mdl_param
-            # Clip client update magnitude to keep FedDC drift tracking stable.
-            #delta_p = _clip_np_by_value(delta_p, 0.02)
             parameter_drifts[clnt] += delta_p
-            #parameter_drifts[clnt] = _clip_np_by_value(parameter_drifts[clnt], 0.5)
             
-            #beta = 1 / (n_minibatch * epoch) / (learning_rate * (lr_decay_per_round ** i))
             beta = 0.05
             state_step = beta * (-delta_p)
-            #state_step = _clip_np_by_value(state_step, 0.01)
             state_g = state_gadient_diffs[clnt] - (state_gadient_diffs[-1]/weight_list[clnt]) + state_step
-            #state_g = _clip_np_by_value(state_g, 0.5)
             
             delta_g_sum += (state_g - state_gadient_diffs[clnt]) * weight_list[clnt]
             state_gadient_diffs[clnt] = state_g
@@ -174,13 +142,12 @@ def train_FedDC(data_obj, model_func_G, model_func_C, model_func_D,
         
         loss_t, acc_t = get_acc_loss(data_obj.tst_x, data_obj.tst_y, cur_cld_C, data_obj.dataset)
         tst_sel_clt_perf[i] = [loss_t, acc_t]
-        #print(len(cld_mdl_param)
         writer.add_scalars(
             "accuracy",
-            {"Accuracy s40": acc_t},i)
+            {"Accuracy 6k, 0.6": acc_t},i)
         writer.add_scalars(
             "loss",
-            {"Loss s40": loss_t,},i)
+            {"Loss 6k, 0.6": loss_t,},i)
 
         '''if i % 10 == 0:
             #fid = compute_fid(global_G, data_obj, device)
@@ -212,11 +179,6 @@ def train_model_TripleFedDC(G, C, D, alpha, round_idx, data_obj,
     sup_loss_tot, adv_loss_tot, prox_loss_tot, drift_loss_tot = 0, 0, 0, 0
     count = 0
 
-    '''C_T = type(C)(data_obj.dataset).to(device) 
-    C_T.load_state_dict(C.state_dict())
-    for p in C_T.parameters(): p.requires_grad_(False)
-    C_T.train()'''
-
     n_cls = data_obj.n_cls if hasattr(data_obj, "n_cls") else 10
     rampup_len = 100
     ssl_warmup_rounds = 40
@@ -232,20 +194,13 @@ def train_model_TripleFedDC(G, C, D, alpha, round_idx, data_obj,
     alpha_G = 0.02 * alpha if round_idx >= 120 else 0.0
     alpha_C = alpha if round_idx > 20 else 0.0
 
-    # TTUR-style setup: keep D stronger than G when G starts updating.
     opt_G = torch.optim.Adam(G.parameters(), lr=learning_rate, betas=(0.5, 0.999))
-    #opt_C = torch.optim.Adam(C.parameters(), lr=learning_rate, betas=(0.5, 0.999))
     opt_D = torch.optim.Adam(D.parameters(), lr=learning_rate, betas=(0.5, 0.999))
+
     # Use a larger LR for C than GAN branches. 2e-4 is typically too small for SGD on CIFAR.
     c_lr_mult = 50.0 if data_obj.dataset == "CIFAR10" else 20.0
-    opt_C = torch.optim.SGD(
-        C.parameters(),
-        lr=learning_rate * c_lr_mult,
-        weight_decay=weight_decay,
-        momentum=0.9,
-        nesterov=True,
-    )
-    #opt_D = torch.optim.SGD(D.parameters(), lr=learning_rate * 0.5, weight_decay=weight_decay, momentum=0.9)
+    opt_C = torch.optim.SGD(C.parameters(), lr=learning_rate * c_lr_mult, weight_decay=weight_decay, momentum=0.9, nesterov=True)
+
 
     sched_G = torch.optim.lr_scheduler.StepLR(opt_G, step_size=sch_step, gamma=sch_gamma)
     sched_C = torch.optim.lr_scheduler.StepLR(opt_C, step_size=sch_step, gamma=sch_gamma)
@@ -257,12 +212,7 @@ def train_model_TripleFedDC(G, C, D, alpha, round_idx, data_obj,
         TripleGANDataset(trn_x_labeled, trn_y_labeled, trn_x_unlabeled, data_obj.dataset), 
         batch_size=batch_size, shuffle=True
     )
-    '''    if round_idx == 0:
-        print(
-            f"[Round 0] Client batch source sizes | labeled={len(trn_y_labeled)} "
-            f"unlabeled={len(trn_x_unlabeled)} steps/epoch~={len(trn_gen)}"
-        )'''
-
+    
     G.train(); C.train(); D.train()
 
     for e in range(epoch):
@@ -281,17 +231,11 @@ def train_model_TripleFedDC(G, C, D, alpha, round_idx, data_obj,
                 label_l = label_l.squeeze()
             
             batch_sz = img_l.size(0) 
-            #decay_factor = max(0, 1.0 - (round_idx / 50.0))
-            #current_noise_std = 0.05 + (0.05 * decay_factor)
 
             #####################################
             #Train Discriminator D 
             #####################################
             opt_D.zero_grad()
-
-            #make discriminator inputs noisy
-            #img_l_noisy = add_instance_noise(img_l, current_noise_std)    
-            #d_real = D(img_l, label_l.long())
 
             ### real - labelled data 
             with torch.no_grad():
@@ -299,29 +243,23 @@ def train_model_TripleFedDC(G, C, D, alpha, round_idx, data_obj,
             feat_l_d = feat_l.detach() * feat_gate
             
             d_real = D(img_l, label_l.long(), feat_l_d)
-            #d_real_loss = torch.mean(torch.nn.functional.softplus(1.0 - d_real))
             d_real_loss = torch.mean(F.relu(1.0 - d_real))
             y_wrong = torch.randint(0, n_cls, (batch_sz,), device=device)
             y_wrong = (y_wrong + (y_wrong == label_l.long()).long()) % n_cls
             d_wrong_loss = torch.mean(F.softplus(D(img_l, y_wrong, feat_l_d)))
 
             ## Fake data 
-            
-            # Synthetic Data from G
-            z = torch.randn(batch_sz, G.z_dim).to(device)
-            y_gen = torch.randint(0, n_cls, (batch_sz,)).to(device)
-            img_fake = G(z, y_gen).detach()# detach so doesnt flow to g
+            # Generate one fake batch per step and reuse it across losses.
+            z = torch.randn(batch_sz, G.z_dim, device=device)
+            y_gen = torch.randint(0, n_cls, (batch_sz,), device=device)
+            img_fake = G(z, y_gen)
 
-            #img_fake_noisy = add_instance_noise(img_fake.detach(), current_noise_std)
-            #img_u_noisy    = add_instance_noise(img_u, current_noise_std)
             # Get features for the fake image (D checks consistency of Fake Img + Fake Feat)
             with torch.no_grad():
                 _, feat_fake = C(img_fake, return_features=True)
             feat_fake_d = feat_fake.detach() * feat_gate
 
-            #d_fake_loss = torch.mean(torch.nn.functional.softplus(1.0 + D(img_fake, y_gen, feat_fake.detach())))
-            #d_fake_loss = torch.mean(torch.nn.functional.softplus(D(img_fake, y_gen)))
-            d_fake =  D(img_fake, y_gen, feat_fake_d)
+            d_fake =  D(img_fake.detach(), y_gen, feat_fake_d)
             d_fake_loss = torch.mean(F.relu(1.0 + d_fake))
 
             ### Pseudo labelled data 
@@ -344,6 +282,7 @@ def train_model_TripleFedDC(G, C, D, alpha, round_idx, data_obj,
             d_pseudo_loss = (d_pseudo_raw * pseudo_mask).sum() / torch.clamp(pseudo_mask.sum(), min=1.0)
             gan_decay = 1.0 if round_idx < 120 else max(0.2, 1.0 - (round_idx - 120) / 200.0)
             loss_D = d_real_loss + gan_decay * (d_fake_loss + 0.15 * ramp_weight * d_pseudo_loss)
+            
             #d_loss is too harsh early on 
             if round_idx > 10:
                 loss_D += d_wrong_loss
@@ -371,27 +310,12 @@ def train_model_TripleFedDC(G, C, D, alpha, round_idx, data_obj,
             if train_G:
                 opt_G.zero_grad()
 
-                #fresh z and y to prevent morisation collapse 
-                z_g = torch.randn(batch_sz, G.z_dim, device=device)
-                y_g = torch.randint(0, n_cls, (batch_sz,), device=device)
-                fake_g = G(z_g, y_g)
-                z2 = torch.randn(batch_sz, G.z_dim, device=device)
-                fake_g2 = G(z2, y_g)
-
-                lz_image = torch.mean(torch.abs(fake_g - fake_g2)) 
-                lz_z     = torch.mean(torch.abs(z_g - z2))
+                fake_g = img_fake
 
                 _, feat_g = C(fake_g, return_features=True)
                 feat_g_d = feat_g.detach() * feat_gate
-                
-                # Encourage G to use z and avoid per-class prototype collapse.
-                #eps = 1e-6
-                #ratio = lz_image / (lz_z + eps)
-                #loss_diversity = F.relu(0.12 - ratio)
 
-                loss_G_adv = -torch.mean(D(fake_g, y_g, feat_g_d))
-                #fake_std = fake_g.view(batch_sz, -1).std(dim=1)
-                #loss_G_nonblank = F.relu(0.15 - fake_std).mean()
+                loss_G_adv = -torch.mean(D(fake_g, y_gen, feat_g_d))
 
                 # Keep FedDC influence on G small even after warm start.
                 loss_cg_G *= fed_weight
@@ -399,11 +323,9 @@ def train_model_TripleFedDC(G, C, D, alpha, round_idx, data_obj,
 
                 # Smoothly ramp adversarial updates after warm start.
                 g_adv_weight = min(1.0, float(round_idx - g_freeze_rounds + 1) / 50.0)
-                #total_G_loss = g_adv_weight * gan_decay * loss_G_adv + (loss_cp_G + loss_cg_G) #+ 0.1 * loss_diversity + 0.05 * loss_G_nonblank
                 total_G_loss = loss_G_adv + (loss_cp_G + loss_cg_G)
 
                 total_G_loss.backward()
-                #torch.nn.utils.clip_grad_norm_(G.parameters(), max_norm=10.0)
                 opt_G.step()
 
 
@@ -415,15 +337,7 @@ def train_model_TripleFedDC(G, C, D, alpha, round_idx, data_obj,
             # Supervised Loss
             logits_l = C(img_l)
             loss_C_sup = torch.nn.functional.cross_entropy(logits_l, label_l.long())
-            #loss_C_sup = F.cross_entropy(logits_l, label_l.long(), reduction='sum')
-            #loss_C_sup = loss_C_sup / batch_sz
-
-            # SSL Loss (Mean Teacher + Masking)
-            '''with torch.no_grad():
-                logits_u_T = C_T(img_u)
-                probs_u_T = torch.nn.functional.softmax(logits_u_T, dim=1)
-                max_probs, _ = torch.max(probs_u_T, dim=1)
-                mask = max_probs.ge(0.70).float()'''
+            
             logits_u = C(img_u)
             probs_u = torch.softmax(logits_u, dim=1)
 
@@ -436,38 +350,15 @@ def train_model_TripleFedDC(G, C, D, alpha, round_idx, data_obj,
                 c_pseudo_thr = 0.70
             mask = (max_probs >= c_pseudo_thr).float()
 
-            # = C(img_u)
-            #probs_u_S = torch.nn.functional.softmax(logits_u_S, dim=1)
-
             # Pseudo-label SSL loss (masked CE). The previous expression was always zero.
             ssl_ce = F.cross_entropy(logits_u, pseudo_labels.detach(), reduction='none')
             loss_C_ssl = ramp_weight * (ssl_ce * mask).sum() / torch.clamp(mask.sum(), min=1.0)
 
             # Adversarial Loss 
-    
             y_pred_u = torch.argmax(probs_u, dim=1).detach() 
             d_scores_u = D(img_u, y_pred_u, feat_u_d)
             loss_C_adv = torch.mean(torch.nn.functional.relu(1.0 - d_scores_u))
-            '''logits_u_adv, feat_u_adv = C(img_u, return_features=True)
-            y_pred_u_adv = torch.argmax(logits_u_adv, dim=1)
-            d_scores_u = D(img_u, y_pred_u_adv.detach(), feat_u_adv * feat_gate)
-            loss_C_adv = ramp_weight * torch.mean(F.softplus(1.0 - d_scores_u))'''
-            #loss_C_adv = torch.clamp(loss_C_adv, max=0.3)
-
-            #training on generated data
-            z_c = torch.randn(batch_sz, G.z_dim, device=device)
-            y_c = torch.randint(0, n_cls, (batch_sz,), device=device)
-            fake_c = G(z_c, y_c).detach()
-
-            '''logits_fake = C(fake_c)
-            probs_fake = torch.softmax(logits_fake, dim=1)
-            p_assigned = probs_fake.gather(1, y_c.view(-1, 1)).squeeze(1)
-            fake_thr = 0.80 if round_idx < 120 else 0.70
-            fake_mask = (p_assigned >= fake_thr).float()
-            loss_C_fake_raw = F.cross_entropy(logits_fake, y_c, reduction='none')
-            loss_C_fake = (loss_C_fake_raw * fake_mask).sum() / torch.clamp(fake_mask.sum(), min=1.0)'''
             
-            #params_C = torch.cat([p.view(-1) for p in C.parameters()])
             params_C = torch.nn.utils.parameters_to_vector(C.parameters())
             global_C = global_mdl_param[len(params_G):]
             hist_C = hist_i[len(params_G):]
@@ -475,33 +366,15 @@ def train_model_TripleFedDC(G, C, D, alpha, round_idx, data_obj,
 
             loss_cp_C = (alpha_C / 2) * torch.sum((params_C - (global_C - hist_C).detach()) ** 2)
             loss_cg_C = torch.sum(params_C * state_diff_C.detach())
-            #loss_cg_C = loss_cg_C / sum(p.numel() for p in C.parameters())# normalise by oarameter count to prevent from dominating 
             loss_cg_C = torch.clamp(loss_cg_C, min=-10.0, max=10.0)
             loss_cg_C *= fed_weight
-
-            # Classifier losses - balance supervised and semi-supervised
-            '''loss_C_sup_weight = 1.0
-            loss_C_ssl_weight = ramp_weight * 0.5
-            loss_C_adv_weight = gan_decay * ramp_weight * 0.005
-            loss_C_fake_weight = 0.0 if round_idx < 80 else gan_decay * 0.01 * ramp_weight'''
-
-            '''total_C_loss = (loss_C_sup_weight * loss_C_sup + 
-                            loss_C_ssl_weight * loss_C_ssl + 
-                            loss_C_adv_weight * loss_C_adv + 
-                            loss_C_fake_weight * loss_C_fake +
-                            0.1 * loss_cp_C + 0.1 * loss_cg_C)'''
 
             # Keep classifier anchored to supervised/SSL signals; adversarial pressure is a small regularizer.
             c_adv_weight = 0.05 * ramp_weight * gan_decay
             total_C_loss = loss_C_sup + loss_C_ssl + c_adv_weight * loss_C_adv + 0.1 * (loss_cp_C + loss_cg_C)
 
             total_C_loss.backward()
-            #torch.nn.utils.clip_grad_norm_(C.parameters(), max_norm=10.0)
-
             opt_C.step()
-
-            # Update Teacher (EMA)
-            #update_ema(C, C_T, alpha=0.99)
 
             count += 1
             sup_loss_tot += loss_C_sup.item()
@@ -723,38 +596,6 @@ def evaluate_client(model, X, Y, device, batch_size=64, dataset_name=None):
 
 # --- Helper functions
 
-def avg_models(mdl, clnt_models, weight_list):
-    n_node = len(clnt_models)
-    dict_list = list(range(n_node));
-    for i in range(n_node):
-        dict_list[i] = copy.deepcopy(dict(clnt_models[i].named_parameters()))
-
-    param_0 = clnt_models[0].named_parameters()
-
-    for name, param in param_0:
-        param_ = weight_list[0] * param.data
-        for i in list(range(1 ,n_node)):
-            param_ = param_ + weight_list[i] * dict_list[i][name].data
-        dict_list[0][name].data.copy_(param_)
-
-    mdl.load_state_dict(dict_list[0])
-
-    del dict_list
-
-    return mdl
-
-def stratified_labeled_split(x, y, frac=0.1):
-    xs, ys = [], []
-    for c in range(10):
-        idx = np.where(y == c)[0]
-        if len(idx) == 0:
-            continue
-        k = max(1, int(len(idx) * frac))
-        sel = np.random.choice(idx, k, replace=False)
-        xs.append(x[sel])
-        ys.append(y[sel])
-    return np.concatenate(xs), np.concatenate(ys)
-
 def save_gan_images(generator, round_idx, device):
     generator.eval()
     with torch.no_grad():
@@ -776,24 +617,6 @@ def save_gan_images(generator, round_idx, device):
         plt.savefig(f"gen_images/gan_round_{round_idx}.png")
         plt.close()
     generator.train()
-
-
-def add_instance_noise(images, std=0.1):
-    if std <= 0:
-        return images
-    noise = torch.randn_like(images) * std
-    return images + noise
-
-def get_inception_features(imgs, model, device):
-    """Extracts 2048-dim features from InceptionV3"""
-    model.eval()
-    # Inception expects 299x299 inputs
-    # If your images are 32x32, we must upscale them
-    imgs = nn.functional.interpolate(imgs, size=(299, 299), mode='bilinear', align_corners=False)
-    
-    with torch.no_grad():
-        features = model(imgs) # InceptionV3 returns a special object or logit
-    return features.detach().cpu().numpy()
 
 def compute_fid(generator, inception_model, mu_real, sigma_real, device, num_fake=5000):
     generator.eval()
@@ -861,8 +684,7 @@ def precalculate_real_stats(real_images, inception_model, device, batch_size=128
                 batch = batch * 0.5 + 0.5
             
             # Upscale and extract
-            batch_up = nn.functional.interpolate(batch, size=(299, 299), 
-                                               mode='bilinear', align_corners=False)
+            batch_up = nn.functional.interpolate(batch, size=(299, 299), mode='bilinear', align_corners=False)
             feat = inception_model(batch_up)
             real_features.append(feat.cpu().numpy())
     
@@ -871,11 +693,6 @@ def precalculate_real_stats(real_images, inception_model, device, batch_size=128
     sigma_real = np.cov(real_features, rowvar=False)
     
     return mu_real, sigma_real
-
-def update_ema(model, ema_model, alpha=0.99):
-    """Updates the EMA teacher model."""
-    for param, ema_param in zip(model.parameters(), ema_model.parameters()):
-        ema_param.data.mul_(alpha).add_(1 - alpha, param.data)
 
 def sigmoid_rampup(current, rampup_length):
     """Exponential rampup from https://arxiv.org/abs/1610.02242"""
@@ -886,10 +703,6 @@ def sigmoid_rampup(current, rampup_length):
         phase = 1.0 - current / rampup_length
         return float(np.exp(-5.0 * phase * phase))
 
-#debug, rememebr to remove 
-def grad_norm(model):
-    total = 0.0
-    for p in model.parameters():
-        if p.grad is not None:
-            total += p.grad.data.norm(2).item() ** 2
-    return total ** 0.5
+
+def _clip_np_by_value(x, clip_value):
+    return np.clip(x, -clip_value, clip_value)
