@@ -1,10 +1,11 @@
 from utils_libs import *
 from utils_dataset import *
 from utils_models import *
+
 os.environ["CUDA_DEVICE_ORDER"]    = "PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-from torch.utils.tensorboard import SummaryWriter
+
 
 import time
 max_norm = 10
@@ -184,148 +185,6 @@ def avg_models(mdl, clnt_models, weight_list):
 
     return mdl
 
-'''def train_model(model, trn_x, trn_y, tst_x, tst_y, learning_rate, batch_size, epoch, print_per, weight_decay, dataset_name, sch_step=1, sch_gamma=1):
-    n_trn = trn_x.shape[0]
-    trn_gen = data.DataLoader(Dataset(trn_x, trn_y, train=True, dataset_name=dataset_name), batch_size=batch_size, shuffle=True)
-    loss_fn = torch.nn.CrossEntropyLoss(reduction='sum')
-
-    optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate, momentum=0.9, weight_decay=weight_decay)
-
-    model.train(); model = model.to(device)
-
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=sch_step, gamma=sch_gamma)
-    #scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=200)
-
-    # Put tst_x=False if no tst data given
-    print_test = not isinstance(tst_x, bool)
-
-    loss_trn, acc_trn = get_acc_loss(trn_x, trn_y, model, dataset_name, weight_decay)
-    if print_test:
-        loss_tst, acc_tst = get_acc_loss(tst_x, tst_y, model, dataset_name, 0)
-        print("Epoch %3d, Training Accuracy: %.4f, Loss: %.4f, Test Accuracy: %.4f, Loss: %.4f, LR: %.4f"
-              %(0, acc_trn, loss_trn, acc_tst, loss_tst, scheduler.get_lr()[0]))
-    else:
-        print("Epoch %3d, Training Accuracy: %.4f, Loss: %.4f, LR: %.4f"
-              %(0, acc_trn, loss_trn, scheduler.get_lr()[0]))
-
-    model.train()
-
-    for e in range(epoch):
-        # Training
-
-        trn_gen_iter = trn_gen.__iter__()
-        for i in range(int(np.ceil(n_trn/batch_size))):
-
-            batch_x, batch_y = trn_gen_iter.__next__()
-        #for batch_x, batch_y in trn_gen:
-
-            batch_x = batch_x.to(device)
-            batch_y = batch_y.to(device)
-
-            y_pred = model(batch_x)
-            loss = loss_fn(y_pred, batch_y.reshape(-1).long())
-
-
-            loss = loss / list(batch_y.size())[0]
-            optimizer.zero_grad()
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(parameters=model.parameters(), max_norm=max_norm) # Clip gradients to prevent exploding
-            optimizer.step()
-
-        if (e+1) % print_per == 0:
-            loss_trn, acc_trn = get_acc_loss(trn_x, trn_y, model, dataset_name, weight_decay)
-            if print_test:
-                loss_tst, acc_tst = get_acc_loss(tst_x, tst_y, model, dataset_name, 0)
-                print("Epoch %3d, Training Accuracy: %.4f, Loss: %.4f, Test Accuracy: %.4f, Loss: %.4f, LR: %.4f"
-                      %(e+1, acc_trn, loss_trn, acc_tst, loss_tst, scheduler.get_lr()[0]))
-            else:
-                print("Epoch %3d, Training Accuracy: %.4f, Loss: %.4f, LR: %.4f" %(e+1, acc_trn, loss_trn, scheduler.get_lr()[0]))
-
-
-            model.train()
-        scheduler.step()
-
-    # Freeze model
-    for params in model.parameters():
-        params.requires_grad = False
-    model.eval()
-
-    return model'''
-
-def train_model_prox(model, cld_mdl_param, trn_x, trn_y, tst_x, tst_y, learning_rate, batch_size, epoch, print_per, weight_decay, dataset_name, sch_step=1, sch_gamma=1):
-    n_trn = trn_x.shape[0]
-    trn_gen = data.DataLoader(Dataset(trn_x, trn_y, train=True, dataset_name=dataset_name), batch_size=batch_size, shuffle=True)
-    loss_fn = torch.nn.CrossEntropyLoss(reduction='sum')
-
-    optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
-
-    model.train(); model = model.to(device)
-
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=sch_step, gamma=sch_gamma)
-
-    # Put tst_x=False if no tst data given
-    print_test = not isinstance(tst_x, bool)
-
-    loss_trn, acc_trn = get_acc_loss(trn_x, trn_y, model, dataset_name, weight_decay)
-    if print_test:
-        loss_tst, acc_tst = get_acc_loss(tst_x, tst_y, model, dataset_name, 0)
-        print("Epoch %3d, Training Accuracy: %.4f, Loss: %.4f, Test Accuracy: %.4f, Loss: %.4f, LR: %.4f"
-              %(0, acc_trn, loss_trn, acc_tst, loss_tst, scheduler.get_lr()[0]))
-    else:
-        print("Epoch %3d, Training Accuracy: %.4f, Loss: %.4f, LR: %.4f"
-              %(0, acc_trn, loss_trn, scheduler.get_lr()[0]))
-
-    model.train()
-
-    for e in range(epoch):
-        # Training
-
-        trn_gen_iter = trn_gen.__iter__()
-        for i in range(int(np.ceil(n_trn/batch_size))):
-
-            batch_x, batch_y = trn_gen_iter.__next__()
-
-            batch_x = batch_x.to(device)
-            batch_y = batch_y.to(device)
-
-            y_pred = model(batch_x)
-            loss = loss_fn(y_pred, batch_y.reshape(-1).long())
-
-            local_par_list = None
-            for param in model.parameters():
-                if not isinstance(local_par_list, torch.Tensor):
-                # Initially nothing to concatenate
-                    local_par_list = param.reshape(-1)
-                else:
-                    local_par_list = torch.cat((local_par_list, param.reshape(-1)), 0)
-
-            loss_algo = 0.0001 * torch.sum((local_par_list-cld_mdl_param)* (local_par_list-cld_mdl_param))
-
-            loss = loss / list(batch_y.size())[0]+loss_algo
-            optimizer.zero_grad()
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(parameters=model.parameters(), max_norm=max_norm) # Clip gradients to prevent exploding
-            optimizer.step()
-
-        if (e+1) % print_per == 0:
-            loss_trn, acc_trn = get_acc_loss(trn_x, trn_y, model, dataset_name, weight_decay)
-            if print_test:
-                loss_tst, acc_tst = get_acc_loss(tst_x, tst_y, model, dataset_name, 0)
-                print("Epoch %3d, Training Accuracy: %.4f, Loss: %.4f, Test Accuracy: %.4f, Loss: %.4f, LR: %.4f"
-                      %(e+1, acc_trn, loss_trn, acc_tst, loss_tst, scheduler.get_lr()[0]))
-            else:
-                print("Epoch %3d, Training Accuracy: %.4f, Loss: %.4f, LR: %.4f" %(e+1, acc_trn, loss_trn, scheduler.get_lr()[0]))
-
-
-            model.train()
-        scheduler.step()
-
-    # Freeze model
-    for params in model.parameters():
-        params.requires_grad = False
-    model.eval()
-
-    return model
 
 def get_mdl_params(model_list, n_par=None):
 
@@ -351,10 +210,11 @@ def train_model_FedDC(model, model_func, alpha, local_update_last, global_update
     n_trn = trn_x.shape[0]
     state_update_diff = torch.tensor(-local_update_last+ global_update_last,  dtype=torch.float32, device=device)
     trn_gen = data.DataLoader(Dataset(trn_x, trn_y, train=True, dataset_name=dataset_name), batch_size=batch_size, shuffle=True)
-    #loss_fn = torch.nn.CrossEntropyLoss(reduction='sum')
-    loss_fn = torch.nn.CrossEntropyLoss(reduction='mean')
+    loss_fn = torch.nn.CrossEntropyLoss(reduction='sum')
+    #loss_fn = torch.nn.CrossEntropyLoss(reduction='mean')
 
     optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+    #optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate, weight_decay=weight_decay, nesterov=True)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=sch_step, gamma=sch_gamma)
 
     model = model.to(device)
@@ -369,8 +229,6 @@ def train_model_FedDC(model, model_func, alpha, local_update_last, global_update
         trn_gen_iter = trn_gen.__iter__()
         for i in range(int(np.ceil(n_trn/batch_size))):
             batch_x, batch_y = trn_gen_iter.__next__()
-        #for batch_x, batch_y in trn_gen:
-
             batch_x = batch_x.to(device)
             batch_y = batch_y.to(device)
 
@@ -411,7 +269,6 @@ def train_model_FedDC(model, model_func, alpha, local_update_last, global_update
             #print("Epoch %3d, Training Loss: %.4f, LR: %.5f"
                   #%(e+1, epoch_loss, scheduler.get_lr()[0]))
 
-
             model.train()
         scheduler.step()
 
@@ -433,3 +290,4 @@ def set_client_from_params(mdl, params):
 
     mdl.load_state_dict(dict_param)
     return mdl
+    
