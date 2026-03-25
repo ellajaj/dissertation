@@ -214,6 +214,7 @@ def train_model_FedDC(model, model_func, alpha, local_update_last, global_update
     #loss_fn = torch.nn.CrossEntropyLoss(reduction='mean')
 
     optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+    #optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate, weight_decay=weight_decay, nesterov=True)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=sch_step, gamma=sch_gamma)
 
     model = model.to(device)
@@ -268,7 +269,6 @@ def train_model_FedDC(model, model_func, alpha, local_update_last, global_update
             #print("Epoch %3d, Training Loss: %.4f, LR: %.5f"
                   #%(e+1, epoch_loss, scheduler.get_lr()[0]))
 
-
             model.train()
         scheduler.step()
 
@@ -290,3 +290,4 @@ def set_client_from_params(mdl, params):
 
     mdl.load_state_dict(dict_param)
     return mdl
+    

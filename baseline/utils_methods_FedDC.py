@@ -51,8 +51,9 @@ def train_FedDC(data_obj, act_prob,n_minibatch,
     state_gadient_diffs = np.zeros((n_clnt+1, n_par)).astype('float32') #including cloud state
 
 
-    # writer object is for tensorboard visualization, comment out if not needed
-    writer = SummaryWriter('%sRuns/%s/%s' %(data_path, data_obj.name, suffix))
+    # writer object is for tensorboard visualization
+    #writer = SummaryWriter('%sRuns/%s/%s' %(data_path, data_obj.name, suffix))
+    writer = SummaryWriter('../Folder/Runs/final results')
 
     if not trial:
         # Check if there are past saved iterates
@@ -147,6 +148,7 @@ def train_FedDC(data_obj, act_prob,n_minibatch,
             clnt_models = list(range(n_clnt))
             delta_g_sum = np.zeros(n_par)
 
+            round_lr = learning_rate * (lr_decay_per_round ** i)
             for clnt in selected_clnts:
                 print('---- Training client %d' %clnt)
                 trn_x = clnt_x[clnt]
@@ -161,14 +163,14 @@ def train_FedDC(data_obj, act_prob,n_minibatch,
                 alpha = alpha_coef / weight_list[clnt]
                 hist_i = torch.tensor(parameter_drifts[clnt], dtype=torch.float32, device=device) #h_i
                 clnt_models[clnt] = train_model_FedDC(model, model_func, alpha,local_update_last, global_update_last,global_mdl, hist_i,
-                                                     trn_x, trn_y, learning_rate * (lr_decay_per_round ** i),
+                                                     trn_x, trn_y, round_lr,
                                                      batch_size, epoch, print_per, weight_decay, data_obj.dataset, sch_step, sch_gamma)
 
 
                 curr_model_par = get_mdl_params([clnt_models[clnt]], n_par)[0]
                 delta_param_curr = curr_model_par-cld_mdl_param
                 parameter_drifts[clnt] += delta_param_curr
-                beta = 1/n_minibatch/learning_rate
+                beta = 1 / (n_minibatch * round_lr)
 
                 state_g = local_update_last - global_update_last + beta * (-delta_param_curr)
                 delta_g_cur = (state_g - state_gadient_diffs[clnt])*weight_list[clnt]
@@ -212,27 +214,27 @@ def train_FedDC(data_obj, act_prob,n_minibatch,
             trn_cur_cld_perf[i] = [loss_tst, acc_tst]
 
 
-            writer.add_scalars('Loss/same-train',
+            writer.add_scalars('Loss/train',
                    {
-                       'Sel clients 4':trn_sel_clt_perf[i][0],
-                       'All client 4':trn_all_clt_perf[i][0],
-                       'Current cloud 4':trn_cur_cld_perf[i][0]
+                        #'Sel clients 4':trn_sel_clt_perf[i][0],
+                        #'All client 4':trn_all_clt_perf[i][0],
+                       'baseline fmnist 0.1 6k (3)':trn_cur_cld_perf[i][0]
                    }, i
                   )
 
-            writer.add_scalars('Accuracy/same-train',
+            writer.add_scalars('accuracy/train',
                    {
-                       'Sel clients 4':trn_sel_clt_perf[i][1],
-                       'All clients 4':trn_all_clt_perf[i][1],
-                       'Current cloud 4':trn_cur_cld_perf[i][1]
+                        #'Sel clients 4':trn_sel_clt_perf[i][1],
+                        #'All clients 4':trn_all_clt_perf[i][1],
+                       'baseline fmnist 0.1 6k (3)':trn_cur_cld_perf[i][1]
                    }, i
                   )
 
-            writer.add_scalars('Loss/same-test?',
+            writer.add_scalars('Loss/test',
                    {
-                       'Sel clients 4':get_acc_loss(cent_x, cent_y, avg_model_sel, data_obj.dataset, weight_decay)[0],
-                       'All clients 4':get_acc_loss(cent_x, cent_y, all_model, data_obj.dataset, weight_decay)[0],
-                       'Current cloud 4':get_acc_loss(cent_x, cent_y, cur_cld_model, data_obj.dataset, weight_decay)[0]
+                        #'Sel clients 4':get_acc_loss(cent_x, cent_y, avg_model_sel, data_obj.dataset, weight_decay)[0],
+                        #'All clients 4':get_acc_loss(cent_x, cent_y, all_model, data_obj.dataset, weight_decay)[0],
+                       'baseline fmnist 0.1 6k (3)':get_acc_loss(cent_x, cent_y, cur_cld_model, data_obj.dataset, weight_decay)[0]
                    }, i
                   )
 
@@ -259,19 +261,19 @@ def train_FedDC(data_obj, act_prob,n_minibatch,
             tst_cur_cld_perf[i] = [loss_tst, acc_tst]
 
 
-            writer.add_scalars('Loss/same-test',
+            writer.add_scalars('Loss/test.',
                    {
-                       'Sel clients 4':tst_sel_clt_perf[i][0],
-                       'All clients 4':tst_all_clt_perf[i][0],
-                       'Current cloud 4':tst_cur_cld_perf[i][0]
+                        #'Sel clients 4':tst_sel_clt_perf[i][0],
+                        #'All clients 4':tst_all_clt_perf[i][0],
+                        'baseline fmnist 0.1 6k (3)':tst_cur_cld_perf[i][0]
                    }, i
                   )
 
-            writer.add_scalars('Accuracy/same-test',
+            writer.add_scalars('accuracy/test',
                    {
-                       'Sel clients 4':tst_sel_clt_perf[i][1],
-                       'All clients 4':tst_all_clt_perf[i][1],
-                       'Current cloud 4':tst_cur_cld_perf[i][1]
+                        #'Sel clients 4':tst_sel_clt_perf[i][1],
+                        #'All clients 4':tst_all_clt_perf[i][1],
+                        'baseline fmnist 0.1 6k (3)':tst_cur_cld_perf[i][1]
                    }, i
                   )
 
@@ -293,7 +295,6 @@ def train_FedDC(data_obj, act_prob,n_minibatch,
                 np.save('%sModel/%s/%s/%d_com_tst_cur_cld_perf.npy' %(data_path, data_obj.name, suffix, (i+1)), tst_cur_cld_perf[:i+1])
 
                 # save parameter_drifts
-
                 np.save('%sModel/%s/%s/%d_hist_params_diffs.npy' %(data_path, data_obj.name, suffix, (i+1)), parameter_drifts)
                 np.save('%sModel/%s/%s/%d_clnt_params_list.npy' %(data_path, data_obj.name, suffix, (i+1)), clnt_params_list)
 
@@ -309,7 +310,6 @@ def train_FedDC(data_obj, act_prob,n_minibatch,
 
                     os.remove('%sModel/%s/%s/%d_hist_params_diffs.npy' %(data_path, data_obj.name, suffix, i+1-save_period))
                     os.remove('%sModel/%s/%s/%d_clnt_params_list.npy' %(data_path, data_obj.name, suffix, i+1-save_period))
-
 
 
             if ((i+1) % save_period == 0):

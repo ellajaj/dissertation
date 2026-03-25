@@ -14,7 +14,7 @@ def main():
     print("num GPUs: ", torch.cuda.device_count())
 
     # Dataset initialization
-    data_path = 'Folder/' # The folder to save Data & Model
+    data_path = '../Folder/' # The folder to save Data & Model
     
     n_client = 16
     # Generate IID or Dirichlet distribution
@@ -24,8 +24,8 @@ def main():
     #data_obj = DatasetObject(dataset='CIFAR10', n_client=n_client, seed=23, rule='iid', unbalanced_sgm=0.3, data_path=data_path)
 
     # Dirichlet (0.6)
-    data_obj = DatasetObject(dataset='CIFAR10', n_client=n_client, seed=42, unbalanced_sgm=0, rule='Drichlet', rule_arg=0.6, data_path=data_path)
-    data_obj.limit_dataset(max_samples=6000, min_per_class=6, verbose=True)
+    data_obj = DatasetObject(dataset='CIFAR10', n_client=n_client, seed=42, unbalanced_sgm=0, rule='Drichlet', rule_arg=0.4, data_path=data_path)
+    data_obj.limit_dataset(max_samples=5000, min_per_class=5, verbose=True)
     # Dirichlet (0.3)
     #data_obj = DatasetObject(dataset='CIFAR10', n_client=n_client, seed=20, unbalanced_sgm=0, rule='Drichlet', rule_arg=0.3, data_path=data_path)
     #data_obj.limit_dataset(max_samples=6000, min_per_class=600, verbose=False)
@@ -37,7 +37,7 @@ def main():
     ###
     # Common hyperparameters
 
-    com_amount = 500
+    com_amount = 1000
     save_period = 100
     weight_decay = 1e-3
     batch_size = 50
@@ -78,7 +78,7 @@ def main():
                                         learning_rate=learning_rate, batch_size=batch_size, epoch=epoch, 
                                         com_amount=com_amount, print_per=print_per, weight_decay=weight_decay, 
                                         model_func=model_func, init_model=init_model, alpha_coef=alpha_coef,
-                                        sch_step=1, sch_gamma=1,save_period=save_period, suffix=suffix, trial=True,
+                                        sch_step=1, sch_gamma=1, save_period=save_period, suffix=suffix, trial=True,
                                         data_path=data_path, lr_decay_per_round=lr_decay_per_round)
     #exit(0)
     ###

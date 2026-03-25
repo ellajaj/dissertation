@@ -68,10 +68,13 @@ class Generator(nn.Module):
         self.z_dim = z_dim
         self.num_classes = num_classes
         self.nlabels = num_classes
-        if self.name == 'CIFAR10':
-            self.channels = 3
-        elif self.name == 'fashion_mnist':
+        if self.name == 'fashion_mnist':
             self.channels = 1
+        #if self.name == 'CIFAR10':
+        else:
+            self.channels = 3
+
+        in_channels = z_dim + num_classes if num_classes > 0 else z_dim
 
         #if self.name == 'CIFAR10':
         self.main = nn.Sequential(

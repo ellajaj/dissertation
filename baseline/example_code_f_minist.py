@@ -4,7 +4,7 @@ from utils_general import *
 from utils_methods_FedDC import train_FedDC
 
 # Dataset initialization
-data_path = 'Folder/' # The folder to save Data & Model
+data_path = '../Results/' # The folder to save Data & Model
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("Using device:", device)
@@ -18,13 +18,13 @@ n_client = 16
 
 # Dirichlet (0.6)
 data_obj = DatasetObject(dataset='fashion_mnist', n_client=n_client, seed=20, unbalanced_sgm=0, rule='Drichlet', rule_arg=0.1, data_path=data_path)
-data_obj.limit_dataset(max_samples=10000, min_per_class=6, verbose=True)
+data_obj.limit_dataset(max_samples=6000, min_per_class=6, verbose=True)
 
 model_name = 'Resnet18' # Model type
 
 ###
 # Common hyperparameters
-com_amount = 100
+com_amount = 500
 save_period = 100
 weight_decay = 1e-3
 batch_size = 50
@@ -51,7 +51,7 @@ else:
     
 print('FedDC')
 
-epoch = 5
+epoch = 6
 alpha_coef = 0.1
 learning_rate = 0.1
 print_per = epoch // 2
@@ -64,7 +64,7 @@ n_minibatch = (epoch*n_iter_per_epoch).astype(np.int64)
                                     learning_rate=learning_rate, batch_size=batch_size, epoch=epoch, 
                                     com_amount=com_amount, print_per=print_per, weight_decay=weight_decay, 
                                     model_func=model_func, init_model=init_model, alpha_coef=alpha_coef,
-                                    sch_step=1, sch_gamma=1,save_period=save_period, suffix=suffix, trial=False,
+                                    sch_step=1, sch_gamma=1,save_period=save_period, suffix=suffix, trial=True,
                                     data_path=data_path, lr_decay_per_round=lr_decay_per_round)
 ## ####
 

@@ -10,7 +10,7 @@ def get_features(images, model, device):
     with torch.no_grad():
         # Resize images to 299x299 as required by InceptionV3
         # CIFAR images are usually 32x32; we upscale them here
-        if images.shape[2:] != (299, 299):
+        '''if images.shape[2:] != (299, 299):
             images = F.interpolate(images, size=(299, 299), mode='bilinear', align_corners=False)
         
         features = model(images.to(device))
@@ -19,7 +19,21 @@ def get_features(images, model, device):
         # during training, but in .eval() it usually returns just the tensor.
         # This squeeze ensures we get a 2D array (batch, features)
         if isinstance(features, tuple):
+            features = features[0]'''
+        if images.shape[1] == 1:
+            images = images.repeat(1, 3, 1, 1)
+
+        # Inception also needs 299x299. If not already resized:
+        if images.shape[2] < 299:
+            images = torch.nn.functional.interpolate(images, size=(299, 299), mode='bilinear', align_corners=False)
+
+        features = model(images.to(device))
+        
+        # If it's a tuple (Inception aux), take the first element
+        if isinstance(features, tuple):
             features = features[0]
+
+    #return model(images.to(device))
             
     return features.squeeze().cpu().numpy()
 

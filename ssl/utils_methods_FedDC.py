@@ -21,10 +21,19 @@ def train_FedDC(data_obj, model_func_G, model_func_C, model_func_D,
     clnt_y_l = data_obj.clnt_y_l
     clnt_x_u = data_obj.clnt_x_u
 
+    trn_eval_x = np.concatenate([np.asarray(xc) for xc in clnt_x_l], axis=0)
+    trn_eval_y = np.concatenate([np.asarray(yc) for yc in clnt_y_l], axis=0)
+    if isinstance(trn_eval_x, np.ndarray) and trn_eval_x.dtype == object:
+        trn_eval_x = np.stack([np.asarray(x) for x in trn_eval_x], axis=0)
+    if isinstance(trn_eval_y, np.ndarray) and trn_eval_y.dtype == object:
+        trn_eval_y = np.stack([np.asarray(y) for y in trn_eval_y], axis=0)
+
     weight_list = np.asarray([len(clnt_y_l[i]) for i in range(n_clnt)])
     weight_list = weight_list / np.sum(weight_list) * n_clnt
 
-    tst_sel_clt_perf = np.zeros((com_amount, 2))
+    #tst_sel_clt_perf = np.zeros((com_amount, 2))
+    trn_curr_cld_perf = np.zeros((com_amount, 2))
+    tst_curr_cld_perf = np.zeros((com_amount, 2))
 
     model_dir = ('%sModel/%s/%s' %(data_path, data_obj.name, suffix))
     if not os.path.exists(model_dir):
@@ -54,18 +63,18 @@ def train_FedDC(data_obj, model_func_G, model_func_C, model_func_D,
 
     n_save_instances = int(com_amount / save_period)
 
-    writer = SummaryWriter('%sRuns/%s/%s' %(data_path, data_obj.name, suffix))
+    #writer = SummaryWriter('%sRuns/%s/%s' %(data_path, data_obj.name, suffix))
+    writer = SummaryWriter('../Results/Runs/final results')
 
     #Initialize Inception 
-    '''inception_model = inception_v3(pretrained=True, transform_input=False).to(device)
+    inception_model = inception_v3(pretrained=True, transform_input=False).to(device)
     inception_model.fc = nn.Identity()
     inception_model.eval()
 
     # Pre-calculate Real Stats once
     print("Pre-calculating real image statistics for FID...")
     
-    mu_real, sigma_real = precalculate_real_stats(data_obj.tst_x, inception_model, device)'''
-
+    mu_real, sigma_real = precalculate_real_stats(data_obj.tst_x, inception_model, device)
 
     for i in range(com_amount):
         # Client selection
@@ -138,25 +147,37 @@ def train_FedDC(data_obj, model_func_G, model_func_C, model_func_D,
         cld_mdl_param = avg_mdl_param_sel + np.mean(parameter_drifts, axis=0)#avg_mdl_param_sel = np.mean(clnt_params_list[selected_clnts], axis=0)
         
         # Update global evaluation model (Classifier only for Accuracy)
-        global_G, global_C =set_combined_params(cur_cld_G, cur_cld_C, cld_mdl_param, n_par_G)
+        global_G, global_C = set_combined_params(cur_cld_G, cur_cld_C, cld_mdl_param, n_par_G)
         
+        ##get test accuracy
         loss_t, acc_t = get_acc_loss(data_obj.tst_x, data_obj.tst_y, cur_cld_C, data_obj.dataset)
-        tst_sel_clt_perf[i] = [loss_t, acc_t]
+        tst_curr_cld_perf[i] = [loss_t, acc_t]
         writer.add_scalars(
-            "accuracy",
-            {"Accuracy 6k, 0.6": acc_t},i)
+            "accuracy/test",
+            {"cifar ssl 0.4 no gen": acc_t},i)
         writer.add_scalars(
-            "loss",
-            {"Loss 6k, 0.6": loss_t,},i)
+            "Loss/test",
+            {"cifar ssl 0.4 no gen": loss_t,},i)
 
-        '''if i % 10 == 0:
+        ##get train accuracy
+        loss_trn, acc_trn = get_acc_loss(trn_eval_x, trn_eval_y, cur_cld_C, data_obj.dataset)
+        trn_curr_cld_perf[i] = [loss_trn, acc_trn]
+        writer.add_scalars(
+            "accuracy/train",
+            {"cifar ssl 0.4 nogen": acc_trn},i)
+        writer.add_scalars(
+            "Loss/train",
+            {"cifar ssl 0.4 nogen": loss_trn,},i)
+
+        #commented out as FID calculations are computationally heavy
+        if i % 10 == 0:
             #fid = compute_fid(global_G, data_obj, device)
             fid = compute_fid(global_G, inception_model, mu_real, sigma_real, device, num_fake=5000)
             print(f"Round {i} | FID: {fid:.2f}")
             writer.add_scalars(
             "FID",
-            {"FID gantest15": fid,},i)'''
-        print("**** Round %d, Test Accuracy: %.4f, loss = %.4f" % (i+1, acc_t, loss_t))
+            {"cifar ssl 0.4 nogen": fid,},i)
+        print("**** Round %d, Test Accuracy: %.4f, Train accuracy: %.4f, loss = %.4f" % (i+1, acc_t, acc_trn, loss_t))
 
         if (i + 1) % save_period == 0:
             save_path = os.path.join(model_dir, f'checkpoint_round_{i+1}.pt')
@@ -169,7 +190,7 @@ def train_FedDC(data_obj, model_func_G, model_func_C, model_func_D,
 
             print(f"Saved checkpoint at round {i+1}")
 
-    return cur_cld_C, tst_sel_clt_perf
+    return cur_cld_C, tst_curr_cld_perf
 
 
 def train_model_TripleFedDC(G, C, D, alpha, round_idx, data_obj,
@@ -180,15 +201,14 @@ def train_model_TripleFedDC(G, C, D, alpha, round_idx, data_obj,
     count = 0
 
     n_cls = data_obj.n_cls if hasattr(data_obj, "n_cls") else 10
-    rampup_len = 100
-    ssl_warmup_rounds = 40
-    ssl_round = max(0, round_idx - ssl_warmup_rounds)
-    ramp_weight = sigmoid_rampup(ssl_round, rampup_len)
+
+    ssl_round = max(0, round_idx - 40)
+    ramp_weight = sigmoid_rampup(ssl_round, 100)
 
     g_freeze_rounds = 50
     d_feat_warmup_start = 20
+    ssl_warmup_rounds = 40
     d_feat_full_round = 120
-    train_G = round_idx >= g_freeze_rounds
 
     # Keep FedDC pressure off G during warm start, then reintroduce gently.
     alpha_G = 0.02 * alpha if round_idx >= 120 else 0.0
@@ -197,7 +217,6 @@ def train_model_TripleFedDC(G, C, D, alpha, round_idx, data_obj,
     opt_G = torch.optim.Adam(G.parameters(), lr=learning_rate, betas=(0.5, 0.999))
     opt_D = torch.optim.Adam(D.parameters(), lr=learning_rate, betas=(0.5, 0.999))
 
-    # Use a larger LR for C than GAN branches. 2e-4 is typically too small for SGD on CIFAR.
     c_lr_mult = 50.0 if data_obj.dataset == "CIFAR10" else 20.0
     opt_C = torch.optim.SGD(C.parameters(), lr=learning_rate * c_lr_mult, weight_decay=weight_decay, momentum=0.9, nesterov=True)
 
@@ -307,7 +326,7 @@ def train_model_TripleFedDC(G, C, D, alpha, round_idx, data_obj,
             loss_cg_G = torch.sum(params_G * state_diff_G.detach())
             loss_cg_G = torch.clamp(loss_cg_G, min=-10.0, max=10.0)
 
-            if train_G:
+            if round_idx >= g_freeze_rounds:
                 opt_G.zero_grad()
 
                 fake_g = img_fake
@@ -436,6 +455,20 @@ def get_combined_params(G, C, n_par):
 
 
 def get_acc_loss(data_x, data_y, model, dataset_name, w_decay = None):
+    # Normalize potentially ragged/object client arrays into dense numeric arrays.
+    data_x = np.asarray(data_x)
+    if data_x.dtype == object:
+        elems_x = [np.asarray(x) for x in data_x]
+        try:
+            data_x = np.stack(elems_x, axis=0)
+        except ValueError:
+            data_x = np.concatenate(elems_x, axis=0)
+
+    data_y = np.asarray(data_y)
+    if data_y.dtype == object:
+        data_y = np.concatenate([np.asarray(y).reshape(-1) for y in data_y], axis=0)
+    data_y = np.asarray(data_y).reshape(-1).astype(np.int64)
+
     acc_overall = 0 
     loss_overall = 0
     loss_fn = torch.nn.CrossEntropyLoss(reduction='sum')
@@ -632,10 +665,16 @@ def compute_fid(generator, inception_model, mu_real, sigma_real, device, num_fak
             y = torch.randint(0, 10, (inf_batch_size,), device=device)
             
             fake = generator(z, y)
-            fake = fake * 0.5 + 0.5
+            fake = (fake * 0.5 + 0.5).clamp(0,1)
             
             # Inline extraction to avoid function call overhead
             fake_up = nn.functional.interpolate(fake, size=(299, 299), mode='bilinear', align_corners=False)
+
+            # ImageNet normalization (required for pretrained Inception)
+            mean = torch.tensor([0.485, 0.456, 0.406], device=device).view(1,3,1,1)
+            std  = torch.tensor([0.229, 0.224, 0.225], device=device).view(1,3,1,1)
+            fake_up = (fake_up - mean) / std
+
             feat = inception_model(fake_up)
             
             fake_features.append(feat.cpu().numpy())
@@ -680,11 +719,24 @@ def precalculate_real_stats(real_images, inception_model, device, batch_size=128
         for batch in batches:
             batch = batch.to(device)
             # Normalize [-1, 1] -> [0, 1] if necessary
-            if batch.min() < 0:
-                batch = batch * 0.5 + 0.5
+            #if batch.min() < 0:
+                #batch = batch * 0.5 + 0.5
+
+            # Undo CIFAR normalization
+            cifar_mean = torch.tensor([0.4914, 0.4822, 0.4465], device=device).view(1,3,1,1)
+            cifar_std  = torch.tensor([0.2023, 0.1994, 0.2010], device=device).view(1,3,1,1)
+
+            batch = batch * cifar_std + cifar_mean
+            batch = batch.clamp(0,1)
             
             # Upscale and extract
             batch_up = nn.functional.interpolate(batch, size=(299, 299), mode='bilinear', align_corners=False)
+
+            # ImageNet normalization
+            mean = torch.tensor([0.485, 0.456, 0.406], device=device).view(1,3,1,1)
+            std  = torch.tensor([0.229, 0.224, 0.225], device=device).view(1,3,1,1)
+            batch_up = (batch_up - mean) / std
+
             feat = inception_model(batch_up)
             real_features.append(feat.cpu().numpy())
     

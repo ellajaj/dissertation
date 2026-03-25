@@ -17,7 +17,7 @@ class DatasetObject:
 
     def set_data(self):
         rng = np.random.default_rng(seed=42)
-        labeled_fraction = 0.10
+        labeled_fraction = 0.1
         unlabeled_to_labeled_ratio = 1.0
 
         def _match_unlabeled_to_labeled(clnt_x_l, clnt_y_l, clnt_x_u, rng):
@@ -147,14 +147,18 @@ class DatasetObject:
                     if clnt_data_list[curr_clnt] <= 0:
                         continue
                     clnt_data_list[curr_clnt] -= 1
-                    curr_prior = prior_cumsum[curr_clnt]
+                    curr_prior = cls_priors[curr_clnt]
                     while True:
                         print("cls_amount:", cls_amount)
-
-                        cls_label = np.argmax(np.random.uniform() <= curr_prior)
-                        # Redraw class label if trn_y is out of that class
-                        if cls_amount[cls_label] <= 0:
-                            continue
+                        valid = np.array(cls_amount) > 0
+                        if not np.any(valid):
+                            raise RuntimeError("No labeled samples left to assign while clients still need data.")
+                        probs = curr_prior.copy()
+                        probs[~valid] = 0
+                        if probs.sum() == 0:
+                            probs = valid.astype(float)
+                        probs = probs / probs.sum()
+                        cls_label = rng.choice(self.n_cls, p=probs)
                         cls_amount[cls_label] -= 1
                         idx = idx_list[cls_label][cls_amount[cls_label]]
 
@@ -175,14 +179,18 @@ class DatasetObject:
                     print('Remaining Data: %d' %np.sum(clnt_data_list))
                     if clnt_data_list_u[curr_clnt] <= 0:
                         continue
-                    curr_prior = prior_cumsum[curr_clnt]
+                    curr_prior = cls_priors[curr_clnt]
                     while True:
                         print("cls_amount:", cls_amount_u)
-
-                        cls_label = np.argmax(np.random.uniform() <= curr_prior)
-                        # Redraw class label if trn_y is out of that class
-                        if cls_amount_u[cls_label] <= 0:
-                            continue
+                        valid = np.array(cls_amount_u) > 0
+                        if not np.any(valid):
+                            raise RuntimeError("No unlabeled samples left to assign while clients still need data.")
+                        probs = curr_prior.copy()
+                        probs[~valid] = 0
+                        if probs.sum() == 0:
+                            probs = valid.astype(float)
+                        probs = probs / probs.sum()
+                        cls_label = rng.choice(self.n_cls, p=probs)
                         cls_amount_u[cls_label] -= 1
                         idx = idx_list_u[cls_label][cls_amount_u[cls_label]]
 
@@ -353,6 +361,11 @@ class Dataset(torch.utils.data.Dataset):
                         self.X_data = torch.tensor(data_x).float()
             else:
                 self.X_data = torch.tensor(data_x).float()
+            if not isinstance(data_y, bool):
+                y_arr = np.asarray(data_y)
+                if y_arr.dtype == object:
+                    y_arr = np.concatenate([np.asarray(y).reshape(-1) for y in y_arr], axis=0)
+                self.y_data = y_arr.astype('int64')
         else:
             raise ValueError(f"Unknown dataset name: {self.name}")
 
@@ -476,4 +489,3 @@ class TripleGANDataset(torch.utils.data.Dataset):
                 img = (img * 255.0).clip(0, 255)
             img = img.astype(np.uint8)
         return img
-
