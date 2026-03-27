@@ -1,3 +1,4 @@
+''' some code adapted from https://github.com/taufikxu/Triple-GAN.git - MIT license'''
 from utils_libs import *
 
 class Classifier(nn.Module):

@@ -1,3 +1,5 @@
+''' taken from https://github.com/rohanreddy1201/CIFAR10-Image-Generator-using-GANs/tree/main -- MIT license'''
+
 import torch
 import torch.nn as nn
 

@@ -1,3 +1,5 @@
+'''code adapted from https://github.com/gaoliang13/FedDC -- MIT license'''
+
 from utils_libs import *
 from utils_dataset import *
 from utils_models import *
