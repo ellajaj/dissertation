@@ -3,8 +3,6 @@ from utils_dataset import *
 from utils_methods_FedDC import *
 from utils_models import Discriminator, Generator, Classifier
 
-#import torch
-#import torch.nn as nn
 import numpy as np
 import copy
 
@@ -31,7 +29,6 @@ def main():
     
     print("Setting up Federated Dataset...")
     
-    # This uses your Dirichlet rule for Non-IID data
     data_obj = DatasetObject(dataset='CIFAR10',  n_client=n_clients,  seed=42,  rule='Drichlet',  rule_arg=0.4)
     #data_obj = DatasetObject(dataset='CIFAR10', n_client=n_clients, seed=23, rule='iid', unbalanced_sgm=0)
 
@@ -44,14 +41,12 @@ def main():
         # This is a helper for FedDC to know the structure of G and C combined
         return global_G, global_C
 
-    '''print("Trying pretrained generator")
+    print("Trying pretrained generator")
 
-    # 2. Load the Pre-trained Weights
+    # load the Pre-trained Weights
     print("Loading pre-trained generator...")
     pretrained_dict = torch.load("../generator/generator.pth", map_location=device)
 
-    # Optional: If the file contains more than just the model (like optimizer states),
-    # you might need to access the sub-dictionary, e.g., pretrained_dict['model_state_dict']
     if 'model_state_dict' in pretrained_dict:
         pretrained_dict = pretrained_dict['model_state_dict']
 
@@ -65,9 +60,7 @@ def main():
         model_dict = init_model_G.state_dict()
         pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict and v.shape == model_dict[k].shape}
         model_dict.update(pretrained_dict) 
-        init_model_G.load_state_dict(model_dict)'''
-
-
+        init_model_G.load_state_dict(model_dict)'
 
     print(f"Starting Triple GAN FedDC with {n_clients} clients...")
     
@@ -76,8 +69,8 @@ def main():
         model_func_G = Generator, 
         model_func_C = Classifier,
         model_func_D = Discriminator, 
-        #init_model_G = init_model_G,
-        init_model_G = global_G,
+        init_model_G = init_model_G,
+        #init_model_G = global_G,
         init_model_C = global_C,
         act_prob=act_prob,            
         n_minibatch=10,           # Approximate minibatches per epoch

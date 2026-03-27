@@ -23,6 +23,7 @@ def train_FedDC(data_obj, model_func_G, model_func_C, model_func_D,
 
     trn_eval_x = np.concatenate([np.asarray(xc) for xc in clnt_x_l], axis=0)
     trn_eval_y = np.concatenate([np.asarray(yc) for yc in clnt_y_l], axis=0)
+
     if isinstance(trn_eval_x, np.ndarray) and trn_eval_x.dtype == object:
         trn_eval_x = np.stack([np.asarray(x) for x in trn_eval_x], axis=0)
     if isinstance(trn_eval_y, np.ndarray) and trn_eval_y.dtype == object:
@@ -31,7 +32,6 @@ def train_FedDC(data_obj, model_func_G, model_func_C, model_func_D,
     weight_list = np.asarray([len(clnt_y_l[i]) for i in range(n_clnt)])
     weight_list = weight_list / np.sum(weight_list) * n_clnt
 
-    #tst_sel_clt_perf = np.zeros((com_amount, 2))
     trn_curr_cld_perf = np.zeros((com_amount, 2))
     tst_curr_cld_perf = np.zeros((com_amount, 2))
 
@@ -47,7 +47,7 @@ def train_FedDC(data_obj, model_func_G, model_func_C, model_func_D,
     state_gadient_diffs = np.zeros((n_clnt + 1, n_par)).astype('float32') 
     clnt_params_list = np.zeros((n_clnt, n_par)).astype('float32')
     
-    # Persistent local discriminators (not federated)
+    # local discriminators (not federated)
     local_Ds = [model_func_D(data_obj.dataset).to(device) for _ in range(n_clnt)]
     
     init_par_G = get_mdl_params([init_model_G])[0]
@@ -63,18 +63,19 @@ def train_FedDC(data_obj, model_func_G, model_func_C, model_func_D,
 
     n_save_instances = int(com_amount / save_period)
 
-    #writer = SummaryWriter('%sRuns/%s/%s' %(data_path, data_obj.name, suffix))
-    writer = SummaryWriter('../Results/Runs/final results')
+    writer = SummaryWriter('%sRuns/%s/%s' %(data_path, data_obj.name, suffix))
+    #writer = SummaryWriter('/Results/Runs/final results')
 
     #Initialize Inception 
-    inception_model = inception_v3(pretrained=True, transform_input=False).to(device)
+    #commented out as FID calculations are computationaly heavy
+    '''inception_model = inception_v3(pretrained=True, transform_input=False).to(device)
     inception_model.fc = nn.Identity()
     inception_model.eval()
 
     # Pre-calculate Real Stats once
     print("Pre-calculating real image statistics for FID...")
     
-    mu_real, sigma_real = precalculate_real_stats(data_obj.tst_x, inception_model, device)
+    mu_real, sigma_real = precalculate_real_stats(data_obj.tst_x, inception_model, device)'''
 
     for i in range(com_amount):
         # Client selection
@@ -114,6 +115,7 @@ def train_FedDC(data_obj, model_func_G, model_func_C, model_func_D,
             else:
                 set_combined_params(local_G, local_C, cld_mdl_param, n_par_G)
 
+            #run local training of G, C and D
             local_G, local_C, s_loss, a_loss, p_loss, d_loss = train_model_TripleFedDC(
                 local_G, local_C, local_Ds[clnt],
                 alpha_coef / weight_list[clnt], i, data_obj,
@@ -152,32 +154,33 @@ def train_FedDC(data_obj, model_func_G, model_func_C, model_func_D,
         ##get test accuracy
         loss_t, acc_t = get_acc_loss(data_obj.tst_x, data_obj.tst_y, cur_cld_C, data_obj.dataset)
         tst_curr_cld_perf[i] = [loss_t, acc_t]
+
         writer.add_scalars(
             "accuracy/test",
-            {"cifar ssl 0.4 no gen": acc_t},i)
+            {"SSFL": acc_t},i)
         writer.add_scalars(
             "Loss/test",
-            {"cifar ssl 0.4 no gen": loss_t,},i)
+            {"SSFL": loss_t,},i)
 
         ##get train accuracy
         loss_trn, acc_trn = get_acc_loss(trn_eval_x, trn_eval_y, cur_cld_C, data_obj.dataset)
         trn_curr_cld_perf[i] = [loss_trn, acc_trn]
         writer.add_scalars(
             "accuracy/train",
-            {"cifar ssl 0.4 nogen": acc_trn},i)
+            {"SSFL": acc_trn},i)
         writer.add_scalars(
             "Loss/train",
-            {"cifar ssl 0.4 nogen": loss_trn,},i)
+            {"SSFL": loss_trn,},i)
 
         #commented out as FID calculations are computationally heavy
-        if i % 10 == 0:
+        '''if i % 10 == 0:
             #fid = compute_fid(global_G, data_obj, device)
             fid = compute_fid(global_G, inception_model, mu_real, sigma_real, device, num_fake=5000)
             print(f"Round {i} | FID: {fid:.2f}")
             writer.add_scalars(
             "FID",
             {"cifar ssl 0.4 nogen": fid,},i)
-        print("**** Round %d, Test Accuracy: %.4f, Train accuracy: %.4f, loss = %.4f" % (i+1, acc_t, acc_trn, loss_t))
+        print("**** Round %d, Test Accuracy: %.4f, Train accuracy: %.4f, loss = %.4f" % (i+1, acc_t, acc_trn, loss_t))'''
 
         if (i + 1) % save_period == 0:
             save_path = os.path.join(model_dir, f'checkpoint_round_{i+1}.pt')
@@ -216,10 +219,8 @@ def train_model_TripleFedDC(G, C, D, alpha, round_idx, data_obj,
 
     opt_G = torch.optim.Adam(G.parameters(), lr=learning_rate, betas=(0.5, 0.999))
     opt_D = torch.optim.Adam(D.parameters(), lr=learning_rate, betas=(0.5, 0.999))
-
     c_lr_mult = 50.0 if data_obj.dataset == "CIFAR10" else 20.0
     opt_C = torch.optim.SGD(C.parameters(), lr=learning_rate * c_lr_mult, weight_decay=weight_decay, momentum=0.9, nesterov=True)
-
 
     sched_G = torch.optim.lr_scheduler.StepLR(opt_G, step_size=sch_step, gamma=sch_gamma)
     sched_C = torch.optim.lr_scheduler.StepLR(opt_C, step_size=sch_step, gamma=sch_gamma)
@@ -245,7 +246,6 @@ def train_model_TripleFedDC(G, C, D, alpha, round_idx, data_obj,
             if label_l.dim() > 1 and label_l.shape[1] > 1:
                 label_l = torch.argmax(label_l, dim=1)
             
-            # 2. Handle Extra Dimensions (e.g., shape [32, 1] -> [32])
             if label_l.dim() > 1 and label_l.shape[1] == 1:
                 label_l = label_l.squeeze()
             
@@ -310,7 +310,6 @@ def train_model_TripleFedDC(G, C, D, alpha, round_idx, data_obj,
             torch.nn.utils.clip_grad_norm_(D.parameters(), max_norm=10.0)
 
             opt_D.step()
-
 
             ###############################
             # Train Generator G 
@@ -691,7 +690,7 @@ def compute_fid(generator, inception_model, mu_real, sigma_real, device, num_fak
 
 def calculate_frechet_distance(mu1, sigma1, mu2, sigma2):
     diff = mu1 - mu2
-    # Faster matrix square root
+
     import scipy.linalg
     covmean = scipy.linalg.sqrtm(sigma1.dot(sigma2))
     if np.iscomplexobj(covmean):
@@ -700,10 +699,6 @@ def calculate_frechet_distance(mu1, sigma1, mu2, sigma2):
     return diff.dot(diff) + np.trace(sigma1) + np.trace(sigma2) - 2 * np.trace(covmean)
 
 def precalculate_real_stats(real_images, inception_model, device, batch_size=128):
-    """
-    Computes FID statistics for the real dataset once.
-    real_images: numpy array or torch tensor
-    """
     inception_model.eval()
     real_features = []
     

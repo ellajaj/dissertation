@@ -4,7 +4,7 @@ from utils_general import *
 from utils_methods_FedDC import train_FedDC
 
 # Dataset initialization
-data_path = '../Results/' # The folder to save Data & Model
+data_path = '/Results/' # The folder to save Data & Model
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("Using device:", device)

@@ -10,7 +10,8 @@ import copy
 
 
 def main():
-    torch.cuda.empty_cache()#remove
+    torch.cuda.empty_cache()
+    
     # Hyperparameters 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("running on", device)

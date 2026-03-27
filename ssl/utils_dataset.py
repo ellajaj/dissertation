@@ -21,7 +21,6 @@ class DatasetObject:
         unlabeled_to_labeled_ratio = 1.0
 
         def _match_unlabeled_to_labeled(clnt_x_l, clnt_y_l, clnt_x_u, rng):
-            # Enforce per-client unlabeled count to match labeled count exactly.
             matched_x_u = []
             for clnt in range(len(clnt_x_l)):
                 x_l_i = np.asarray(clnt_x_l[clnt])
@@ -56,8 +55,8 @@ class DatasetObject:
                 trn_load = torch.utils.data.DataLoader(trnset, batch_size=50000, shuffle=False, num_workers=1)
                 tst_load = torch.utils.data.DataLoader(tstset, batch_size=10000, shuffle=False, num_workers=1)
                 self.channels = 3; self.width = 32; self.height = 32; self.n_cls = 10;
+
             if self.dataset == 'fashion_mnist':
-                # Keep raw pixel scale here; normalization is applied later in Dataset/TripleGANDataset.
                 transform = transforms.Compose([transforms.ToTensor()])
                 trnset = torchvision.datasets.FashionMNIST(root='%sData/Raw' %self.data_path,
                                                            train=True, download=True, transform=transform)
@@ -84,7 +83,7 @@ class DatasetObject:
             trn_x = trn_x[rand_perm]
             trn_y = trn_y[rand_perm]
 
-            # Use 10% labeled and match unlabeled pool size to labeled pool size.
+            # Use 10% labeled and match unlabeled pool size to labeled pool size
             n_total = len(trn_y)
             n_labeled = int(labeled_fraction * n_total)
             n_unlabeled = int(unlabeled_to_labeled_ratio * n_labeled)

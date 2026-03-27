@@ -14,7 +14,7 @@ def main():
     print("num GPUs: ", torch.cuda.device_count())
 
     # Dataset initialization
-    data_path = '../Folder/' # The folder to save Data & Model
+    data_path = '/Results/' # The folder to save Data & Model
     
     n_client = 16
     # Generate IID or Dirichlet distribution
