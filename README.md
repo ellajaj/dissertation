@@ -1,6 +1,9 @@
 # GAN-based Semi-Supervised Federated Learning for Image Classification Applications
 This repository contains the code for the GAN-based SSFL on CIFAR-10 and Fashion MNIST datasets. 
 
+## Abstract
+The application of traditional deep learning in healthcare presents problems with maintaining the privacy of patient data and obtaining an appropriate amount of data. For these reasons, GAN-based semi-supervised federated learning for image classification is proposed. The project designs an algorithm combining ideas from FedDC and TripleGAN to overcome the lack of labelled data, ensure privacy of data, and handle issues with heterogeneous data. We can achieve an accuracy of 66\% with moderately non-IID data on the CIFAR-10 dataset, and 87\% on the Fashion MNIST dataset, which are competitive results with other similar proposals. The image generation capabilities of the implementation are, however, limited, leaving room for further research.
+
 ## File Structure
 
 **baseline**: Contains the code for the supervised baseline algorithm. Contains a subfolder `Results`, where the runs, models and processed data will be stored when the code is run.
