@@ -1,4 +1,4 @@
-'''code adapted from https://github.com/gaoliang13/FedDC'''
+'''code adapted from https://github.com/gaoliang13/FedDC -- MIT license'''
 
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"

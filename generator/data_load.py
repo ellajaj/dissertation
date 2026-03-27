@@ -1,3 +1,5 @@
+''' taken from https://github.com/rohanreddy1201/CIFAR10-Image-Generator-using-GANs/tree/main -- MIT license'''
+
 import pickle
 import numpy as np
 import matplotlib.pyplot as plt
