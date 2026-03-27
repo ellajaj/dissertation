@@ -6,10 +6,10 @@ The application of traditional deep learning in healthcare presents problems wit
 
 ## File Structure
 
-**baseline**: Contains the code for the supervised baseline algorithm. Contains a subfolder `Results`, where the runs, models and processed data will be stored when the code is run.
-**generator**: Contians the pretrainined generators, training script for these generators and the evaluation code.  
-**ssl**: Contains the main code for the GAN-based SSFL. includes a training script for both datasets and a number of util files. the evaluation code can be found in the home directory of the project.Contains a subfolder `Results`, where the runs, models and processed data will be stored when the code is run.  
-**Results**: contains a folder of raw runs which the plots are generated from 
+* **\baseline**: Contains the code for the supervised baseline algorithm. Contains a subfolder `Results`, where the runs, models and processed data will be stored when the code is run.
+* **\generator**: Contians the pretrainined generators, training script for these generators and the evaluation code.  
+* **\ssl**: Contains the main code for the GAN-based SSFL. includes a training script for both datasets and a number of util files. the evaluation code can be found in the home directory of the project.Contains a subfolder `Results`, where the runs, models and processed data will be stored when the code is run.  
+* **\Results**: contains a folder of raw runs which the plots are generated from 
 
 
 ## How to run the code 
