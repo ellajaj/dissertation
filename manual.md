@@ -9,7 +9,7 @@ This code runs with python version 3.7.16
 To execute the baseline code, first set the current directory to the `baseline` folder.  
 Then, to evaluate on the CIFAR-10 dataset, run the command:
 ```bash
-python example_code_cifar.py
+python example_code_cifar10.py
 ```
 alternatively, for the Fashion MNIST dataset run:
 ```bash
