@@ -19,11 +19,11 @@ The code in this repository has been designed to run on a GPU. Before running, c
 To execute the baseline code, first set the current directory to the `baseline` folder.  
 Then, to evaluate on the CIFAR-10 dataset, run the command:
 ```bash
-python examples_code_cifar.py
+python example_code_cifar10.py
 ```
 alternatively, for the Fashion MNIST dataset run:
 ```bash
-python examples_code_f_minist.py
+python example_code_f_minist.py
 ```
 It can also be done using the start.sh file
 
@@ -37,7 +37,7 @@ python training_script.py
 ```
 alternatively, for the Fashion MNIST dataset run:
 ```bash
-python fmnist_script.py
+python fmnist_training_script.py
 ```
 
 ### SSFL
