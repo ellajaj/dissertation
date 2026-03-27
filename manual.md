@@ -9,11 +9,11 @@ This code runs with python version 3.7.16
 To execute the baseline code, first set the current directory to the `baseline` folder.  
 Then, to evaluate on the CIFAR-10 dataset, run the command:
 ```bash
-python examples_code_cifar.py
+python example_code_cifar.py
 ```
 alternatively, for the Fashion MNIST dataset run:
 ```bash
-python examples_code_f_minist.py
+python example_code_f_minist.py
 ```
 It can also be done using the start.sh file. The command that activates the virtual environemnt will need to be changed to for your set up
 
@@ -27,7 +27,7 @@ python training_script.py
 ```
 alternatively, for the Fashion MNIST dataset run:
 ```bash
-python fmnist_script.py
+python fmnist_training_script.py
 ```
 
 ### SSFL
